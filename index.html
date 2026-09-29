@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1F1F1F">
+<title>Horas i9 — Plano Fim de HE</title>
+<style>
+:root{
+  --red:#C00000;--red-d:#8E0000;--red-l:#FBE9E9;
+  --ink:#1A1A1A;--ink2:#4A4A4A;--ink3:#8A8A8A;
+  --line:#E3E3E3;--bg:#F4F4F4;--card:#FFFFFF;--dark:#1F1F1F;
+  --ok:#2E7D32;--ok-l:#E8F3E8;--warn:#9A6200;--warn-l:#FFF4DC;
+  --r:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.45}
+body{padding-bottom:calc(24px + env(safe-area-inset-bottom,0))}
+button,input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+
+/* topo */
+.top{background:var(--dark);color:#fff;padding:calc(12px + env(safe-area-inset-top,0)) 16px 12px}
+.top-in{max-width:1100px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.logo{width:34px;height:34px;border-radius:8px;background:var(--red);display:grid;place-items:center;font-weight:700;font-size:15px;flex-shrink:0}
+.top-t{flex:1;min-width:0}
+.top-t b{display:block;font-size:15px}
+.top-t span{font-size:12px;color:#BDBDBD}
+.top-a{display:flex;gap:6px;align-items:center}
+.top input[type=month]{background:#2D2D2D;border:1px solid #444;color:#fff;border-radius:8px;padding:6px 8px;font-size:13px}
+.lnk{background:none;border:1px solid #555;color:#EEE;border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer}
+
+/* abas */
+.tabs{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.tabs-in{max-width:1100px;margin:0 auto;display:flex;overflow-x:auto;padding:0 8px}
+.tab{background:none;border:0;border-bottom:3px solid transparent;padding:12px 14px;font-size:14px;color:var(--ink2);cursor:pointer;white-space:nowrap}
+.tab.on{color:var(--red);border-bottom-color:var(--red);font-weight:700}
+.tab .n{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--red);color:#fff;font-size:11px;margin-left:5px}
+
+.wrap{max-width:1100px;margin:0 auto;padding:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-bottom:14px}
+h2{font-size:16px;margin-bottom:10px}
+h3{font-size:14px;margin-bottom:8px;color:var(--ink2)}
+.sub{font-size:13px;color:var(--ink3)}
+.muted{color:var(--ink3)}
+
+/* formulários */
+label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin:10px 0 4px}
+.in{width:100%;border:1px solid #CFCFCF;border-radius:8px;padding:10px 12px;background:#fff;font-size:16px}
+.in:focus{outline:2px solid var(--red);outline-offset:0;border-color:var(--red)}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid #CFCFCF;background:#fff;border-radius:8px;padding:10px 14px;cursor:pointer;font-size:14px}
+.btn.p{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}
+.btn.p:active{background:var(--red-d)}
+.btn.w{width:100%;margin-top:14px}
+.btn.s{padding:6px 10px;font-size:13px}
+.btn.ok{border-color:var(--ok);color:var(--ok)}
+.btn.no{border-color:var(--red);color:var(--red)}
+.btn:disabled{opacity:.5;cursor:default}
+.msg{margin-top:10px;font-size:13px;padding:8px 10px;border-radius:8px}
+.msg.e{background:var(--red-l);color:var(--red-d)}
+.msg.o{background:var(--ok-l);color:var(--ok)}
+
+/* login */
+.login{max-width:420px;margin:32px auto;padding:0 16px}
+.login .brand{text-align:center;margin-bottom:18px}
+.login .brand .logo{margin:0 auto 10px;width:52px;height:52px;font-size:22px;color:#fff}
+.login .brand b{font-size:19px}
+.switch{text-align:center;margin-top:14px;font-size:14px}
+.switch a{color:var(--red);font-weight:700;cursor:pointer}
+
+/* saldo */
+.saldo{display:grid;grid-template-columns:1.3fr 1fr 1fr;gap:10px;margin-bottom:14px}
+.big{background:var(--dark);color:#fff;border-radius:var(--r);padding:16px}
+.big .v{font-size:40px;font-weight:700;line-height:1.1}
+.big .l{font-size:13px;color:#CFCFCF}
+.big.zero{background:var(--ok)}
+.st{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:14px}
+.st .v{font-size:24px;font-weight:700}
+.st .l{font-size:12px;color:var(--ink3)}
+@media(max-width:640px){.saldo{grid-template-columns:1fr 1fr}.big{grid-column:1/-1}.row{grid-template-columns:1fr}}
+.note{background:var(--warn-l);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:14px}
+
+/* listas */
+.day{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+.day:last-child{border-bottom:0}
+.day .d{width:52px;flex-shrink:0;text-align:center}
+.day .d b{display:block;font-size:18px}
+.day .d span{font-size:11px;color:var(--ink3);text-transform:uppercase}
+.day .c{flex:1;min-width:0;font-size:14px}
+.day .c .x{font-size:12px;color:var(--ink3)}
+.day .h{font-weight:700;white-space:nowrap}
+.plus{color:var(--red)}.minus{color:var(--ok)}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;vertical-align:1px}
+.t-ok{background:var(--ok-l);color:var(--ok)}
+.t-wait{background:var(--warn-l);color:var(--warn)}
+.t-no{background:var(--red-l);color:var(--red-d)}
+.t-gray{background:#EEE;color:#666}
+
+/* tabelas */
+.tw{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:11px;text-transform:uppercase;color:var(--ink3);text-align:right;padding:8px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th.l,td.l{text-align:left}
+tr.click{cursor:pointer}
+tr.click:hover td{background:#FAFAFA}
+tfoot td{font-weight:700;border-top:2px solid var(--line)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+
+.pend{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
+.pend .a{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer}
+.opt input{margin-top:3px}
+.opt.on{border-color:var(--red);background:#FFF8F8}
+.opt b{display:block;font-size:14px}
+.opt span{font-size:12px;color:var(--ink2);font-weight:400}
+.opt div{font-weight:400}
+.top-t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:640px){
+  .top-t{flex-basis:calc(100% - 46px)}
+  .top-a{width:100%;justify-content:flex-end}
+  table.resp thead{display:none}
+  table.resp,table.resp tbody,table.resp tfoot{display:block}
+  table.resp tr{display:block;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;padding:8px 10px}
+  table.resp td{display:flex;justify-content:space-between;gap:10px;border:0;padding:3px 0;white-space:normal}
+  table.resp td.l{display:block;text-align:left;padding-bottom:6px}
+  table.resp td[data-l]::before{content:attr(data-l);color:var(--ink3);font-size:12px;text-align:left}
+  table.resp td:empty{display:none}
+}
+.expl{font-size:13px;color:var(--ink2);background:#F7F7F7;border-radius:8px;padding:10px 12px;margin-bottom:12px}
+
+/* modal */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.md{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow:auto;border-radius:14px 14px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom,0))}
+@media(min-width:700px){.ov{align-items:center}.md{border-radius:14px}}
+.md-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.x-btn{background:none;border:0;font-size:22px;cursor:pointer;color:var(--ink3)}
+.loading{padding:30px;text-align:center;color:var(--ink3)}
+</style>
+</head>
+<body>
+
+<!-- ═══ LOGIN / PRIMEIRO ACESSO ═══ -->
+<div id="v-login" class="login hidden">
+  <div class="brand"><div class="logo">i9</div><b>Horas i9</b><div class="sub">Plano Fim de HE · Engenharia</div></div>
+
+  <div class="card" id="f-entrar">
+    <h2>Entrar</h2>
+    <label for="l-cod">Código de acesso</label>
+    <input class="in" id="l-cod" inputmode="numeric" maxlength="7" autocomplete="username" placeholder="Ex.: 1042">
+    <label for="l-pin">PIN (6 números)</label>
+    <input class="in" id="l-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password">
+    <button class="btn p w" id="b-entrar">Entrar</button>
+    <div id="m-entrar"></div>
+    <div class="switch">Primeira vez? <a id="go-cad">Tenho um convite</a></div>
+  </div>
+
+  <div class="card hidden" id="f-cad">
+    <h2>Ativar meu acesso</h2>
+    <div id="a-passo1">
+      <p class="sub">Digite o convite que você recebeu do seu superior (ex.: K7PM-4QXT).</p>
+      <label for="a-conv">Convite</label>
+      <input class="in" id="a-conv" autocomplete="off" autocapitalize="characters" placeholder="XXXX-XXXX" style="text-transform:uppercase;letter-spacing:2px">
+      <button class="btn p w" id="b-conv">Continuar</button>
+    </div>
+    <div id="a-passo2" class="hidden">
+      <div class="expl" id="a-quem"></div>
+      <label for="a-tel">Celular (opcional)</label>
+      <input class="in" id="a-tel" inputmode="tel" placeholder="(27) 9 0000-0000">
+      <div class="row">
+        <div><label for="c-pin">Crie um PIN (6 números)</label>
+          <input class="in" id="c-pin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></div>
+        <div><label for="c-pin2">Repita o PIN</label>
+          <input class="in" id="c-pin2" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></div>
+      </div>
+      <button class="btn p w" id="b-cad">Ativar</button>
+    </div>
+    <div id="a-fim" class="hidden" style="text-align:center"></div>
+    <div id="m-cad"></div>
+    <div class="switch"><a id="go-ent">Já tenho código de acesso</a></div>
+  </div>
+</div>
+
+<!-- ═══ APP ═══ -->
+<div id="v-app" class="hidden">
+  <div class="top"><div class="top-in">
+    <div class="logo">i9</div>
+    <div class="top-t"><b id="u-nome">—</b><span id="u-papel">—</span></div>
+    <div class="top-a">
+      <input type="month" id="mes" aria-label="Mês">
+      <button class="lnk" id="b-pin">PIN</button>
+      <button class="lnk" id="b-sair">Sair</button>
+    </div>
+  </div></div>
+  <div class="tabs"><div class="tabs-in" id="tabs"></div></div>
+  <div class="wrap" id="main"></div>
+</div>
+
+<div id="modal"></div>
+
+<script>
+/* ════ CONFIGURAÇÃO ════
+   Preencher com os dados do projeto Supabase "I9 Engenharia" (Settings → API).
+   Use a chave PUBLISHABLE / anon — nunca a service_role aqui. */
+const SUPABASE_URL = 'https://blinftijbpyqduenkcub.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsaW5mdGlqYnB5cWR1ZW5rY3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMzU1MDQsImV4cCI6MjA5MjgxMTUwNH0.ODQC6tpe1RKFe78LB6GhinD74iIzWzLQwQbAkJ4BxNM';
+const API = (window.HE_API || SUPABASE_URL + '/rest/v1');
+
+/* ════ utilidades ════ */
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const hm = m => { m = Math.round(m || 0); const s = m < 0 ? '−' : ''; m = Math.abs(m);
+  return s + Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0'); };
+const brl = v => (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+const PAPEL = {colaborador:'Colaborador',supervisor:'Supervisor de campo',coordenador:'Coordenador',gc:'Gestor de Contrato',rh:'RH',admin:'Administrador'};
+const LIDER = ['supervisor','coordenador','gc','admin'];
+const DIA = ['dom','seg','ter','qua','qui','sex','sáb'];
+const store = {
+  get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
+  set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
+  del(k){ try { localStorage.removeItem(k); } catch(e){} }
+};
+
+async function rpc(fn, args = {}) {
+  const h = {'Content-Type':'application/json', apikey: SUPABASE_ANON_KEY};
+  if (!SUPABASE_ANON_KEY.startsWith('sb_publishable_')) h.Authorization = 'Bearer ' + SUPABASE_ANON_KEY;
+  let r;
+  try { r = await fetch(API + '/rpc/' + fn, {method:'POST', headers:h, body:JSON.stringify(args)}); }
+  catch(e) { throw new Error('Sem conexão. Verifique a internet e tente de novo.'); }
+  const txt = await r.text();
+  const data = txt ? JSON.parse(txt) : null;
+  if (!r.ok) {
+    if (data && data.code === '28000') { sair(true); }
+    throw new Error((data && data.message) || 'Erro ' + r.status);
+  }
+  return data;
+}
+function msg(el, text, ok) { $(el).innerHTML = text ? `<div class="msg ${ok?'o':'e'}">${esc(text)}</div>` : ''; }
+function busy(btn, on) { btn.disabled = on; }
+
+/* ════ estado ════ */
+const S = { token:null, eu:null, mes:null, tab:null, resumo:[], pend:[], ordem:'50_primeiro' };
+
+function mesAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function mesData(){ return S.mes + '-01'; }
+
+/* ════ LOGIN ════ */
+function telaLogin(){
+  $('v-app').classList.add('hidden'); $('v-login').classList.remove('hidden');
+  const ult = store.get('he_codigo'); if (ult) $('l-cod').value = ult;
+}
+$('go-cad').onclick = () => { $('f-entrar').classList.add('hidden'); $('f-cad').classList.remove('hidden'); msg('m-cad',''); };
+$('go-ent').onclick = () => { $('f-cad').classList.add('hidden'); $('f-entrar').classList.remove('hidden'); };
+
+$('b-entrar').onclick = async () => {
+  const cod = $('l-cod').value.replace(/\D/g,''), pin = $('l-pin').value.trim();
+  if (!cod) return msg('m-entrar','Informe seu código de acesso.');
+  if (!/^\d{6}$/.test(pin)) return msg('m-entrar','O PIN tem 6 números.');
+  const b = $('b-entrar'); busy(b,true); msg('m-entrar','');
+  try {
+    const r = await rpc('he_login', {p_codigo:cod, p_pin:pin});
+    if (r.erro) return msg('m-entrar', r.erro);
+    if (r.status === 'pendente') return msg('m-entrar','Seu acesso ainda aguarda aprovação.', true);
+    S.token = r.token; store.set('he_token', r.token); store.set('he_codigo', cod);
+    $('l-pin').value = '';
+    await iniciar();
+  } catch(e){ msg('m-entrar', e.message); }
+  finally { busy(b,false); }
+};
+$('l-pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('b-entrar').click(); });
+
+const PAP_CONV = {colaborador:'colaborador',supervisor:'supervisor de campo',coordenador:'coordenador',gc:'gestor de contrato',rh:'RH'};
+$('b-conv').onclick = async () => {
+  const c = $('a-conv').value.trim();
+  if (c.replace(/[^A-Za-z0-9]/g,'').length !== 8) return msg('m-cad','O convite tem 8 letras/números.');
+  const b = $('b-conv'); busy(b,true); msg('m-cad','');
+  try {
+    const r = await rpc('he_convite_info', {p_convite:c});
+    if (r.erro) return msg('m-cad', r.erro);
+    $('a-quem').innerHTML = `Olá, <b>${esc(r.nome)}</b>.<br>Convite de ${esc(r.convidado_por||'—')} como ${esc(PAP_CONV[r.papel]||r.papel)}.<br>Se este não é você, não continue.`;
+    $('a-passo1').classList.add('hidden'); $('a-passo2').classList.remove('hidden');
+  } catch(e){ msg('m-cad', e.message); }
+  finally { busy(b,false); }
+};
+$('b-cad').onclick = async () => {
+  const p1 = $('c-pin').value, p2 = $('c-pin2').value;
+  if (!/^\d{6}$/.test(p1)) return msg('m-cad','O PIN precisa ter 6 números.');
+  if (p1 !== p2) return msg('m-cad','Os dois PINs não são iguais.');
+  const b = $('b-cad'); busy(b,true); msg('m-cad','');
+  try {
+    const r = await rpc('he_ativar', {p_convite:$('a-conv').value.trim(), p_pin:p1, p_telefone:$('a-tel').value.trim() || null});
+    if (r.erro) return msg('m-cad', r.erro);
+    store.set('he_codigo', String(r.codigo)); $('l-cod').value = r.codigo;
+    $('a-passo2').classList.add('hidden'); $('a-fim').classList.remove('hidden');
+    $('a-fim').innerHTML = `<p class="sub">Seu código de acesso é</p>
+      <div style="font-size:44px;font-weight:700;letter-spacing:3px;margin:4px 0">${r.codigo}</div>
+      <p class="sub">Anote. Para entrar, use este código e o PIN que você criou.</p>
+      ${r.status==='ativo'?'<button class="btn p w" id="b-ir">Entrar agora</button>'
+        :'<div class="msg o">Acesso ativado. Você poderá entrar assim que for aprovado.</div>'}`;
+    if ($('b-ir')) $('b-ir').onclick = () => $('go-ent').click();
+    $('c-pin').value = $('c-pin2').value = '';
+  } catch(e){ msg('m-cad', e.message); }
+  finally { busy(b,false); }
+};
+
+/* ════ APP ════ */
+async function iniciar(){
+  try { S.eu = await rpc('he_eu', {p_token:S.token}); }
+  catch(e){ return telaLogin(); }
+  S.ordem = S.eu.ordem_abatimento || '50_primeiro';
+  $('v-login').classList.add('hidden'); $('v-app').classList.remove('hidden');
+  const pn = S.eu.nome.split(' ');
+  $('u-nome').textContent = window.innerWidth < 640 && pn.length > 2 ? pn[0] + ' ' + pn[pn.length-1] : S.eu.nome;
+  $('u-papel').textContent = PAPEL[S.eu.papel] + ' · código ' + S.eu.codigo + (S.eu.superior ? ' · superior: ' + S.eu.superior : '');
+  S.mes = S.mes || mesAtual(); $('mes').value = S.mes;
+  const tabs = [['minhas','Minhas horas']];
+  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
+  if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
+  if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['cad','Cadastros']);
+  S.tabs = tabs;
+  S.tab = S.tab && tabs.some(t=>t[0]===S.tab) ? S.tab : (S.eu.papel==='colaborador' ? 'minhas' : tabs[1]?.[0] || 'minhas');
+  await carregar();
+}
+function pintarAbas(){
+  $('tabs').innerHTML = S.tabs.map(([k,t]) => {
+    let n = '';
+    if (k==='equipe' && S.pend.length) n = `<span class="n">${S.pend.length}</span>`;
+    if (k==='cad' && S.nPendCad) n = `<span class="n">${S.nPendCad}</span>`;
+    return `<button class="tab ${S.tab===k?'on':''}" data-t="${k}">${t}${n}</button>`;
+  }).join('');
+  $('tabs').querySelectorAll('.tab').forEach(b => b.onclick = () => { S.tab = b.dataset.t; carregar(); });
+}
+async function carregar(){
+  $('main').innerHTML = '<div class="loading">Carregando…</div>';
+  try {
+    const [res, pend] = await Promise.all([
+      rpc('he_resumo_mes', {p_token:S.token, p_mes:mesData()}),
+      LIDER.includes(S.eu.papel) ? rpc('he_autorizacoes', {p_token:S.token, p_escopo:'pendentes', p_mes:mesData()}) : []
+    ]);
+    S.resumo = res; S.pend = pend;
+    if (S.eu.papel === 'admin') {
+      const ps = await rpc('he_admin_pessoas', {p_token:S.token}); S.pessoas = ps;
+      S.nPendCad = ps.filter(p=>p.status==='pendente').length;
+    }
+    pintarAbas();
+    if (S.tab === 'minhas') await vMinhas();
+    else if (S.tab === 'equipe') vEquipe();
+    else if (S.tab === 'rh') vRH();
+    else if (S.tab === 'cad') await vCad();
+  } catch(e){ $('main').innerHTML = `<div class="card"><div class="msg e">${esc(e.message)}</div></div>`; }
+}
+$('mes').onchange = () => { S.mes = $('mes').value || mesAtual(); carregar(); };
+function sair(silencioso){
+  if (S.token && !silencioso) rpc('he_sair', {p_token:S.token}).catch(()=>{});
+  S.token = null; S.eu = null; store.del('he_token'); telaLogin();
+}
+$('b-sair').onclick = () => sair(false);
+
+/* ── descrição de um dia para o colaborador (só horas) ── */
+function linhasDia(d){
+  const it = [];
+  const f50 = d.he50*1.5, f75 = d.he75*1.75, f100 = d.he100*2;
+  if (d.he50)  it.push({t:`Hora extra ${hm(d.he50)} (dia útil, 1ª e 2ª hora)`, v:f50});
+  if (d.he75)  it.push({t:`Hora extra ${hm(d.he75)} (${new Date(d.data+'T12:00').getDay()===6?'sábado':'após a 2ª hora'})`, v:f75});
+  if (d.he100) it.push({t:`Hora extra ${hm(d.he100)} (domingo/feriado)`, v:f100});
+  if (d.desconto && !d.abonado) it.push({t:`Horas a menos no dia (${hm(d.desconto)})`, v:-d.desconto});
+  return it;
+}
+function tagAut(a){
+  if (!a) return '';
+  if (a.startsWith('autorizada')) return `<span class="tag t-ok">Autorizada</span>`;
+  if (a.startsWith('solicitada')) return `<span class="tag t-wait">Aguardando</span>`;
+  return '';
+}
+
+/* ════ MINHAS HORAS ════ */
+async function vMinhas(){
+  const eu = S.resumo.find(r=>r.pessoa_id===S.eu.id) || {normalizado:0,compensado:0,saldo:0,dias_sem_aut:0,he50:0,he75:0,he100:0};
+  const [dias, sols] = await Promise.all([
+    rpc('he_dias', {p_token:S.token, p_pessoa:S.eu.id, p_mes:mesData()}),
+    rpc('he_autorizacoes', {p_token:S.token, p_escopo:'minhas', p_mes:mesData()})
+  ]);
+  const ev = dias.filter(d => linhasDia(d).length || d.autorizacao);
+  const fimMes = new Date(+S.mes.slice(0,4), +S.mes.slice(5,7), 0).toLocaleDateString('pt-BR');
+  $('main').innerHTML = `
+    <div class="saldo">
+      <div class="big ${eu.saldo>0?'':'zero'}"><div class="l">Folga a tirar neste mês</div>
+        <div class="v">${hm(eu.saldo)}</div>
+        <div class="l">${eu.saldo>0?'até '+fimMes+', combinando com seu superior':'Tudo em dia'}</div></div>
+      <div class="st"><div class="l">Folga gerada pelas HE</div><div class="v plus">${hm(eu.normalizado)}</div>
+        <div class="l">HE feitas: ${hm(eu.he50+eu.he75+eu.he100)}</div></div>
+      <div class="st"><div class="l">Já compensado</div><div class="v minus">${hm(eu.compensado)}</div>
+        <div class="l">horas a menos no mês</div></div>
+    </div>
+    ${eu.saldo>0?`<div class="note">Cada hora extra vira folga com bônus: 1h vale 1h30 (dia útil), 1h45 (sábado ou após a 2ª hora) ou 2h (domingo/feriado). O que não for compensado até o fim do mês é pago.</div>`:''}
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
+        <h2 style="margin:0">Pedir hora extra</h2>
+        <button class="btn p s" id="b-sol">+ Solicitar</button>
+      </div>
+      <p class="sub">Toda HE precisa ser pedida antes e autorizada pelo seu superior imediato.</p>
+      ${sols.length?sols.map(s=>`
+        <div class="day"><div class="d"><b>${s.data.slice(8)}</b><span>${DIA[new Date(s.data+'T12:00').getDay()]}</span></div>
+          <div class="c">${s.inicio.slice(0,5)}–${s.fim.slice(0,5)} · ${esc(s.motivo)}
+            <div class="x">${s.status==='autorizada'?'Autorizada por '+esc(s.decisor||''):s.status==='negada'?'Negada'+(s.obs_decisao?': '+esc(s.obs_decisao):''):s.status==='cancelada'?'Cancelada':'Aguardando seu superior'}</div></div>
+          <div>${s.status==='autorizada'?'<span class="tag t-ok">Autorizada</span>':s.status==='negada'?'<span class="tag t-no">Negada</span>':s.status==='cancelada'?'<span class="tag t-gray">Cancelada</span>':`<span class="tag t-wait">Aguardando</span> <button class="btn s" data-cancel="${s.id}">Cancelar</button>`}</div>
+        </div>`).join(''):'<p class="muted" style="margin-top:8px">Nenhum pedido neste mês.</p>'}
+    </div>
+    <div class="card">
+      <h2>Meus dias no ponto</h2>
+      ${ev.length?ev.map(d=>{const it=linhasDia(d);return `
+        <div class="day"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
+          <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')||'<div class="muted">Sem HE</div>'}
+            <div class="x">${esc(d.batidas||'')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100)?' <span class="tag t-no">Sem autorização</span>':''}</div></div>
+          <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div>
+        </div>`;}).join(''):'<p class="muted">Nenhuma hora extra ou compensação neste mês.</p>'}
+      <p class="sub" style="margin-top:10px">Os horários vêm do ponto eletrônico. Algo errado? Fale com seu superior.</p>
+    </div>`;
+  $('b-sol').onclick = () => formHE(null);
+  document.querySelectorAll('[data-cancel]').forEach(b => b.onclick = async () => {
+    try { await rpc('he_cancelar', {p_token:S.token, p_id:+b.dataset.cancel}); carregar(); } catch(e){ alertar(e.message); }
+  });
+}
+
+/* ── formulário de HE (pedido próprio ou autorização direta do líder) ── */
+function formHE(pessoa){
+  const hoje = new Date().toISOString().slice(0,10);
+  modal(`<div class="md-h"><h2 style="margin:0">${pessoa?'Autorizar HE':'Solicitar hora extra'}</h2><button class="x-btn" data-close>×</button></div>
+    ${pessoa?`<p class="sub">${esc(pessoa.nome)}</p>`:'<p class="sub">Seu superior imediato recebe o pedido para autorizar.</p>'}
+    <label for="h-data">Data</label><input class="in" type="date" id="h-data" value="${hoje}">
+    <div class="row"><div><label for="h-ini">Início previsto</label><input class="in" type="time" id="h-ini" value="17:30"></div>
+      <div><label for="h-fim">Fim previsto</label><input class="in" type="time" id="h-fim" value="19:30"></div></div>
+    <label for="h-mot">Motivo</label><textarea class="in" id="h-mot" rows="3" placeholder="Ex.: parada programada do cliente, nota 4560795"></textarea>
+    <button class="btn p w" id="h-ok">${pessoa?'Autorizar':'Enviar pedido'}</button><div id="h-m"></div>`);
+  $('h-ok').onclick = async () => {
+    const a = {p_token:S.token, p_data:$('h-data').value, p_inicio:$('h-ini').value, p_fim:$('h-fim').value, p_motivo:$('h-mot').value.trim()};
+    if (!a.p_data || !a.p_inicio || !a.p_fim) return msg('h-m','Preencha data e horários.');
+    if (!a.p_motivo) return msg('h-m','Informe o motivo.');
+    busy($('h-ok'),true);
+    try {
+      if (pessoa) await rpc('he_autorizar_direto', {...a, p_pessoa:pessoa.pessoa_id});
+      else await rpc('he_solicitar', a);
+      fecharModal(); carregar();
+    } catch(e){ msg('h-m', e.message); busy($('h-ok'),false); }
+  };
+}
+
+/* ════ EQUIPE ════ */
+function vEquipe(){
+  const eq = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
+  const comHE = eq.filter(r => r.normalizado > 0 || r.compensado > 0);
+  const tot = k => eq.reduce((s,r)=>s+(r[k]||0),0);
+  const semAut = eq.reduce((s,r)=>s+r.dias_sem_aut,0);
+  $('main').innerHTML = `
+    ${S.pend.length?`<div class="card"><h2>Pedidos para decidir (${S.pend.length})</h2>
+      ${S.pend.map(p=>`<div class="pend"><b>${esc(p.nome)}</b>
+        <div>${new Date(p.data+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})} · ${p.inicio.slice(0,5)}–${p.fim.slice(0,5)}</div>
+        <div class="sub">${esc(p.motivo)} ${p.antecedencia_horas<0?'<span class="tag t-no">Pedido depois do início</span>':''}</div>
+        <div class="a"><button class="btn ok s" data-dec="autorizada" data-id="${p.id}">Autorizar</button>
+          <button class="btn no s" data-dec="negada" data-id="${p.id}">Negar</button></div></div>`).join('')}</div>`:''}
+    <div class="kpis">
+      <div class="st"><div class="l">Pessoas com HE no mês</div><div class="v">${comHE.filter(r=>r.normalizado>0).length}</div><div class="l">de ${eq.length}</div></div>
+      <div class="st"><div class="l">Folga gerada</div><div class="v">${hm(tot('normalizado'))}</div><div class="l">≈ ${(tot('normalizado')/528).toFixed(1).replace('.',',')} dias de 8h48</div></div>
+      <div class="st"><div class="l">Folga ainda a tirar</div><div class="v plus">${hm(tot('saldo'))}</div></div>
+      <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div></div>
+    </div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">${S.eu.papel==='rh'?'Pessoas':'Minha equipe'} no mês</h2>
+      ${LIDER.includes(S.eu.papel)?'<button class="btn p s" id="b-conv-eq">+ Convidar pessoa</button>':''}</div>
+      <p class="sub" style="margin-bottom:8px">Toque em uma pessoa para ver os dias${LIDER.includes(S.eu.papel)?' e autorizar HE':''}.</p>
+      ${eq.length>12?'<input class="in" id="b-eq" placeholder="Buscar nome" style="margin-bottom:10px">':''}
+      <div class="tw"><table class="resp">
+        <thead><tr><th class="l">Nome</th><th>HE feitas</th><th>Folga gerada</th><th>Compensado</th><th>Saldo</th><th class="l">Alertas</th></tr></thead>
+        <tbody>${eq.map((r,i)=>`<tr class="click" data-i="${i}" data-n="${esc(r.nome.toLowerCase())}">
+          <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.superior?' · '+esc(r.superior):''}</div></td>
+          <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
+          <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
+          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span>`:''}</td></tr>`).join('')}
+        </tbody></table></div>
+      ${eq.length?'':'<p class="muted">Ninguém da equipe aprovado ainda. As pessoas aparecem aqui quando o cadastro delas indicar você como superior.</p>'}
+    </div>`;
+  document.querySelectorAll('[data-dec]').forEach(b => b.onclick = async () => {
+    try { await rpc('he_decidir', {p_token:S.token, p_id:+b.dataset.id, p_status:b.dataset.dec}); carregar(); } catch(e){ alertar(e.message); }
+  });
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => detalhe(eq[+tr.dataset.i]));
+  if ($('b-conv-eq')) $('b-conv-eq').onclick = () => convidar();
+  if ($('b-eq')) $('b-eq').oninput = () => { const q = $('b-eq').value.toLowerCase();
+    document.querySelectorAll('tr[data-i]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
+}
+async function detalhe(p){
+  modal('<div class="loading">Carregando…</div>');
+  try {
+    const [dias, auts] = await Promise.all([
+      rpc('he_dias', {p_token:S.token, p_pessoa:p.pessoa_id, p_mes:mesData()}),
+      rpc('he_autorizacoes', {p_token:S.token, p_escopo:'equipe', p_mes:mesData()})
+    ]);
+    const minhas = auts.filter(a => a.pessoa_id === p.pessoa_id);
+    const podeAut = LIDER.includes(S.eu.papel);
+    const ev = dias.filter(d => linhasDia(d).length || d.autorizacao || /interst/i.test(d.observacao||''));
+    modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
+      <p class="sub">Saldo de folga: <b>${hm(p.saldo)}</b> · gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)}</p>
+      ${podeAut?'<button class="btn p s" id="b-aut" style="margin:10px 0">+ Autorizar HE</button>':''}
+      <h3 style="margin-top:10px">Dias com HE ou compensação</h3>
+      ${ev.map(d=>{const it=linhasDia(d);return `<div class="day"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
+        <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')}
+          <div class="x">${esc(d.batidas||'')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100)?' <span class="tag t-no">Sem autorização</span>':''}</div>
+          ${d.observacao?`<div class="x">${esc(d.observacao)}</div>`:''}</div>
+        <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div></div>`;}).join('')||'<p class="muted">Nada neste mês.</p>'}
+      <h3 style="margin-top:14px">Autorizações do mês</h3>
+      ${minhas.map(a=>`<div class="pend"><b>${a.data.split('-').reverse().slice(0,2).join('/')} · ${a.inicio.slice(0,5)}–${a.fim.slice(0,5)}</b>
+        <span class="tag ${a.status==='autorizada'?'t-ok':a.status==='negada'?'t-no':a.status==='solicitada'?'t-wait':'t-gray'}">${a.status}</span>
+        <div class="sub">${esc(a.motivo)}${a.decisor?' · por '+esc(a.decisor):''}</div>
+        ${podeAut&&a.status==='autorizada'?`<label>Atividade impactada pela compensação (se houver)</label>
+          <div style="display:flex;gap:6px"><input class="in" data-imp="${a.id}" value="${esc(a.impacto||'')}" placeholder="Ex.: preventiva da EE Carapina adiada">
+          <button class="btn s" data-imps="${a.id}">Salvar</button></div>`:(a.impacto?`<div class="sub">Impacto: ${esc(a.impacto)}</div>`:'')}
+      </div>`).join('')||'<p class="muted">Nenhuma neste mês.</p>'}
+      <div id="d-m"></div>`);
+    if (podeAut) $('b-aut').onclick = () => formHE(p);
+    document.querySelectorAll('[data-imps]').forEach(b => b.onclick = async () => {
+      const id = b.dataset.imps, v = document.querySelector(`[data-imp="${id}"]`).value;
+      try { await rpc('he_registrar_impacto', {p_token:S.token, p_id:+id, p_impacto:v}); msg('d-m','Impacto salvo.',true); }
+      catch(e){ msg('d-m', e.message); }
+    });
+  } catch(e){ modal(`<div class="msg e">${esc(e.message)}</div>`); }
+}
+
+/* ════ FECHAMENTO RH ════ */
+const FAT = {he50:1.5, he75:1.75, he100:2.0};
+const ORDENS = {
+  '50_primeiro': ['he50','he75','he100'],
+  '100_primeiro': ['he100','he75','he50']
+};
+// Divide o saldo não compensado nas rubricas, conforme a ordem de abatimento.
+function rubricas(r, ordem){
+  const out = {he50:r.he50, he75:r.he75, he100:r.he100};
+  let resto = r.compensado;               // em minutos de hora normal
+  if (ordem === 'proporcional') {
+    const k = r.normalizado ? 1 - r.compensado / r.normalizado : 0;
+    for (const f in out) out[f] = Math.round(out[f] * k);
+    return out;
+  }
+  for (const f of ORDENS[ordem]) {
+    const cap = out[f] * FAT[f], uso = Math.min(resto, cap);
+    out[f] = Math.round(out[f] - uso / FAT[f]); resto -= uso;
+  }
+  return out;
+}
+function vRH(){
+  const rows = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0);
+  const calc = rows.map(r => {
+    const p = rubricas(r, S.ordem), hb = r.hora_base;
+    const not = (r.noturna + r.hn);
+    const val = hb ? {
+      he50: p.he50/60*hb*1.5, he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2
+    } : null;
+    return {...r, p, not, val, total: val ? val.he50+val.he75+val.he100+val.not : null};
+  });
+  const sum = (f) => calc.reduce((s,c)=>s+(f(c)||0),0);
+  const semHB = calc.filter(c => !c.hora_base).length;
+  const op = (k,t,d) => `<label class="opt ${S.ordem===k?'on':''}"><input type="radio" name="ord" value="${k}" ${S.ordem===k?'checked':''}><div><b>${t}</b><span>${d}</span></div></label>`;
+  $('main').innerHTML = `
+    <div class="card"><h2>Ordem de abatimento das compensações</h2>
+      <div class="expl">Quando a pessoa compensa parte das horas, é preciso definir quais faixas de HE foram quitadas primeiro.
+        <b>O valor total pago é o mesmo em qualquer opção</b>, porque cada faixa carrega o próprio fator (50% = 1,5 · 75% = 1,75 · 100% = 2,0).
+        O que muda é como as horas aparecem nas rubricas do holerite. Confirme com a contabilidade se alguma regra da convenção depende da <i>quantidade</i> de horas por faixa.</div>
+      ${op('50_primeiro','Abater primeiro as de 50% (padrão)','Favorece o colaborador na leitura do holerite: sobram as faixas mais altas. Pode aparecer HE a 100% sem nenhuma a 50%.')}
+      ${op('100_primeiro','Abater primeiro as de 100%','Sobram as faixas mais baixas. Holerite mais "natural" (quem tem 100% também tem 50%).')}
+      ${op('proporcional','Abater proporcionalmente','Cada faixa é reduzida na mesma proporção. Mantém a composição original do mês.')}
+      <div id="o-m"></div>
+    </div>
+    <div class="kpis">
+      <div class="st"><div class="l">Pessoas com HE / noturno</div><div class="v">${calc.length}</div></div>
+      <div class="st"><div class="l">Folga gerada (com fator)</div><div class="v">${hm(sum(c=>c.normalizado))}</div></div>
+      <div class="st"><div class="l">Compensado</div><div class="v minus">${hm(sum(c=>c.compensado))}</div></div>
+      <div class="st"><div class="l">Saldo a pagar (h normais)</div><div class="v plus">${hm(sum(c=>c.saldo))}</div></div>
+      <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':'HE + adicional noturno'}</div></div>
+    </div>
+    <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <h2 style="margin:0">Fechamento de ${new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</h2>
+      <button class="btn s" id="b-csv">Exportar CSV</button></div>
+      <div class="tw"><table class="resp">
+        <thead><tr><th class="l">Nome</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Gerado</th><th>Compensado</th>
+          <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Hora base</th><th>Total R$</th></tr></thead>
+        <tbody>${calc.map(c=>`<tr>
+          <td class="l">${esc(c.nome)}<div class="sub">${esc(c.empresa||'')}</div></td>
+          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
+          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td>
+          <td data-l="Hora base">${c.hora_base?brl(+c.hora_base):'<span class="tag t-wait">cadastrar</span>'}</td>
+          <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b></td></tr>`).join('')}</tbody>
+        <tfoot><tr><td class="l">Total</td><td>${hm(sum(c=>c.he50))}</td><td>${hm(sum(c=>c.he75))}</td><td>${hm(sum(c=>c.he100))}</td>
+          <td>${hm(sum(c=>c.normalizado))}</td><td>${hm(sum(c=>c.compensado))}</td>
+          <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td><td></td>
+          <td>${brl(sum(c=>c.total))}</td></tr></tfoot>
+      </table></div>
+      <p class="sub" style="margin-top:8px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
+    </div>`;
+  document.querySelectorAll('input[name=ord]').forEach(i => i.onchange = async () => {
+    try { await rpc('he_config_set', {p_token:S.token, p_chave:'ordem_abatimento', p_valor:i.value}); S.ordem = i.value; vRH(); }
+    catch(e){ msg('o-m', e.message); }
+  });
+  $('b-csv').onclick = () => {
+    const h = ['Nome','Empresa','HE50 (h)','HE75 (h)','HE100 (h)','Gerado (h normais)','Compensado (h normais)',
+      'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Hora base','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Total'];
+    const n = v => (v/60).toFixed(2).replace('.',','), r2 = v => v==null?'':v.toFixed(2).replace('.',',');
+    const L = calc.map(c => [c.nome, c.empresa||'', n(c.he50), n(c.he75), n(c.he100), n(c.normalizado), n(c.compensado),
+      n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), c.hora_base?r2(+c.hora_base):'',
+      r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.total)]);
+    const csv = '﻿' + [h, ...L].map(l => l.map(x => `"${String(x).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    a.download = `fechamento_he_${S.mes}_${S.ordem}.csv`; a.click();
+  };
+}
+
+/* ════ CADASTROS ════ */
+async function vCad(){
+  const ps = S.pessoas || await rpc('he_admin_pessoas', {p_token:S.token});
+  S.pessoas = ps;
+  const adm = S.eu.papel === 'admin';
+  const lideres = ps.filter(p => p.status==='ativo' && LIDER.includes(p.papel));
+  const opSup = (sel) => '<option value="">— sem superior —</option>' +
+    lideres.map(l=>`<option value="${l.id}" ${l.id===sel?'selected':''}>${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('');
+  const opPap = (sel) => ['colaborador','supervisor','coordenador','gc','rh'].map(k=>`<option value="${k}" ${k===sel?'selected':''}>${PAPEL[k]}</option>`).join('');
+  const pend = ps.filter(p=>p.status==='pendente');
+  const ativos = ps.filter(p=>p.status!=='pendente');
+  const cont = s => ps.filter(p=>p.status===s).length;
+  $('main').innerHTML = `
+    ${adm?`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <h2 style="margin:0">Aguardando aprovação (${pend.length})</h2>${pend.length>1?'<button class="btn ok s" id="b-aprt">Aprovar todos como indicado</button>':''}</div>
+      ${pend.length?pend.map(p=>`<div class="pend" data-p="${p.id}"><b>${esc(p.nome)}</b>
+        <div class="sub">Convidado por ${esc(p.convidado_por||'—')} como ${PAPEL[p.papel_solicitado]||'—'} · superior: ${esc(p.superior_solicitado||'não informado')}${p.telefone?' · '+esc(p.telefone):''}</div>
+        <div class="row"><div><label>Função</label><select class="in" data-papel>${opPap(p.papel_solicitado)}</select></div>
+          <div><label>Superior imediato</label><select class="in" data-sup>${opSup(p.superior_solicitado_id)}</select></div></div>
+        <div class="a"><button class="btn ok s" data-apr>Aprovar</button><button class="btn no s" data-rej>Recusar</button></div></div>`).join(''):'<p class="muted">Nenhum cadastro pendente.</p>'}
+    </div>`:''}
+    <div class="kpis">
+      <div class="st"><div class="l">No ponto (Quark)</div><div class="v">${ps.filter(p=>p.no_quark).length}</div></div>
+      <div class="st"><div class="l">Com acesso ativo</div><div class="v">${cont('ativo')}</div></div>
+      <div class="st"><div class="l">Sem acesso ainda</div><div class="v">${cont('sem_acesso')}</div></div>
+      <div class="st"><div class="l">Sem hora base (RH)</div><div class="v">${ps.filter(p=>p.no_quark&&!p.hora_base).length}</div></div>
+      <div class="st"><div class="l">Ativos sem superior</div><div class="v ${ps.filter(p=>p.status==='ativo'&&p.papel==='colaborador'&&!p.superior_id).length?'plus':''}">${ps.filter(p=>p.status==='ativo'&&p.papel==='colaborador'&&!p.superior_id).length}</div><div class="l">nenhum líder vê essas pessoas</div></div>
+    </div>
+    <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0">Pessoas</h2>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${adm?'<button class="btn p s" id="b-conv-ad">+ Convidar</button><button class="btn s" id="b-lote">Convites em lote</button><button class="btn s" id="b-nova">+ Pessoa fora do ponto</button>':''}</div></div>
+      <input class="in" id="busca" placeholder="Buscar nome" style="margin-bottom:10px">
+      <div class="tw"><table><thead><tr><th class="l">Nome</th><th class="l">Função</th><th class="l">Superior</th><th class="l">Acesso</th><th>Hora base</th><th></th></tr></thead>
+        <tbody id="t-pes">${ativos.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}">
+          <td class="l">${esc(p.nome)}<div class="sub">código ${p.codigo} · ${esc(p.empresa||'')}${p.matricula?' · mat. '+esc(p.matricula):''}</div></td>
+          <td class="l">${p.status==='ativo'?PAPEL[p.papel]:'—'}</td><td class="l">${esc(p.superior||'—')}</td>
+          <td class="l"><span class="tag ${p.status==='ativo'?'t-ok':p.status==='bloqueado'?'t-no':p.convite_pendente?'t-wait':'t-gray'}">${p.status==='sem_acesso'?(p.convite_pendente?'convite enviado':'sem acesso'):p.status}</span></td>
+          <td>${p.hora_base?brl(+p.hora_base):'—'}</td>
+          <td><button class="btn s" data-ed="${p.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>
+    </div>`;
+  document.querySelectorAll('.pend[data-p]').forEach(el => {
+    const id = el.dataset.p;
+    el.querySelector('[data-apr]').onclick = async () => {
+      try { await rpc('he_admin_aprovar', {p_token:S.token, p_pessoa:id, p_papel:el.querySelector('[data-papel]').value, p_superior:el.querySelector('[data-sup]').value || null});
+        S.pessoas = null; carregar(); } catch(e){ alertar(e.message); }
+    };
+    el.querySelector('[data-rej]').onclick = async () => {
+      if (!confirm('Recusar este cadastro? A pessoa poderá se cadastrar de novo.')) return;
+      try { await rpc('he_admin_acesso', {p_token:S.token, p_pessoa:id, p_acao:'rejeitar'}); S.pessoas = null; carregar(); } catch(e){ alertar(e.message); }
+    };
+  });
+  $('busca').oninput = () => { const q = $('busca').value.toLowerCase();
+    document.querySelectorAll('#t-pes tr').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
+  document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => editar(ps.find(p=>p.id===b.dataset.ed), opSup, opPap, adm));
+  if ($('b-aprt')) $('b-aprt').onclick = async () => {
+    if (!confirm('Aprovar todos os pendentes com a função e o superior indicados no convite?')) return;
+    try { const n = await rpc('he_admin_aprovar_todos', {p_token:S.token}); S.pessoas = null; carregar(); } catch(e){ alertar(e.message); }
+  };
+  if (adm) { $('b-conv-ad').onclick = () => convidar(); $('b-lote').onclick = () => convitesLote(); }
+  if (adm) $('b-nova').onclick = () => {
+    modal(`<div class="md-h"><h2 style="margin:0">Pessoa fora do ponto</h2><button class="x-btn" data-close>×</button></div>
+      <p class="sub">Para quem precisa de acesso mas não aparece no Quark (ex.: RH, coordenação).</p>
+      <label>Nome completo</label><input class="in" id="n-nome"><label>Empresa</label><input class="in" id="n-emp" value="I9 ENGENHARIA E TECNOLOGIA LTDA">
+      <button class="btn p w" id="n-ok">Adicionar</button><div id="n-m"></div>`);
+    $('n-ok').onclick = async () => {
+      try { const id = await rpc('he_admin_criar_pessoa', {p_token:S.token, p_nome:$('n-nome').value, p_empresa:$('n-emp').value});
+        convidar({id, nome:$('n-nome').value.toUpperCase()}); S.pessoas = null; } catch(e){ msg('n-m', e.message); }
+    };
+  };
+}
+function editar(p, opSup, opPap, adm){
+  modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
+    ${adm?`<label>Função</label><select class="in" id="e-pap" ${p.papel==='admin'?'disabled':''}>${p.papel==='admin'?'<option>Administrador</option>':opPap(p.papel)}</select>
+    <label>Superior imediato</label><select class="in" id="e-sup">${opSup(p.superior_id)}</select>`:''}
+    <div class="row"><div><label>Matrícula</label><input class="in" id="e-mat" value="${esc(p.matricula||'')}"></div>
+      <div><label>Hora base (R$)</label><input class="in" id="e-hb" inputmode="decimal" value="${p.hora_base??''}" placeholder="25,00"></div></div>
+    <button class="btn p w" id="e-ok">Salvar</button>
+    ${adm&&p.status==='sem_acesso'?'<button class="btn ok w" id="e-conv">Gerar convite para esta pessoa</button>':''}
+    ${adm&&p.papel!=='admin'?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      ${p.status!=='sem_acesso'?'<button class="btn s" data-ac="resetar">Resetar PIN</button>':''}
+      ${p.status==='bloqueado'?'<button class="btn s" data-ac="desbloquear">Desbloquear</button>':'<button class="btn no s" data-ac="bloquear">Bloquear acesso</button>'}</div>`:''}
+    <div id="e-m"></div>`);
+  if ($('e-conv')) $('e-conv').onclick = () => convidar(p);
+  $('e-ok').onclick = async () => {
+    const hb = $('e-hb').value.trim().replace(',', '.');
+    try { await rpc('he_admin_editar', {p_token:S.token, p_pessoa:p.id,
+        p_papel: adm && $('e-pap') && p.papel!=='admin' ? $('e-pap').value : null,
+        p_superior: adm ? ($('e-sup').value || null) : p.superior_id,
+        p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null});
+      fecharModal(); S.pessoas = null; carregar(); } catch(e){ msg('e-m', e.message); }
+  };
+  document.querySelectorAll('[data-ac]').forEach(b => b.onclick = async () => {
+    if (!confirm('Confirmar: ' + b.textContent + '?')) return;
+    try { await rpc('he_admin_acesso', {p_token:S.token, p_pessoa:p.id, p_acao:b.dataset.ac}); fecharModal(); S.pessoas = null; carregar(); }
+    catch(e){ msg('e-m', e.message); }
+  });
+}
+
+/* ════ CONVITES ════ */
+const NIVEL = {colaborador:0,supervisor:1,coordenador:2,gc:3,rh:3,admin:9};
+function papeisConvite(){
+  const todos = ['colaborador','supervisor','coordenador','gc','rh'];
+  return S.eu.papel === 'admin' ? todos : todos.filter(k => k !== 'rh' && NIVEL[k] < NIVEL[S.eu.papel]);
+}
+function linkApp(){ return location.href.split('#')[0].split('?')[0]; }
+function textoConvite(r){
+  return `Olá, ${r.nome.split(' ')[0]}! Seu convite para o app Horas i9 é ${r.convite}. ` +
+    `Abra ${linkApp()} e toque em "Tenho um convite". Depois, você entra com o código ${r.codigo} e o PIN que criar.`;
+}
+function mostrarConvites(lista){
+  modal(`<div class="md-h"><h2 style="margin:0">Convites gerados</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">Envie cada convite só para a própria pessoa. Vale por 30 dias e só pode ser usado uma vez.</p>
+    ${lista.map((r,i)=>`<div class="pend"><b>${esc(r.nome)}</b>
+      <div style="font-size:22px;font-weight:700;letter-spacing:2px;margin:4px 0">${esc(r.convite)}</div>
+      <div class="sub">Código de acesso: ${r.codigo}</div>
+      <div class="a"><a class="btn ok s" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(textoConvite(r))}">Enviar por WhatsApp</a>
+        <button class="btn s" data-cp="${i}">Copiar mensagem</button></div></div>`).join('')
+      || '<p class="muted">Nenhum convite gerado (a pessoa já tem acesso?).</p>'}
+    <div id="cv-m"></div>`);
+  document.querySelectorAll('[data-cp]').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(textoConvite(lista[+b.dataset.cp])); msg('cv-m','Mensagem copiada.',true); }
+    catch(e){ msg('cv-m','Não foi possível copiar. Use o botão do WhatsApp.'); }
+  });
+}
+function convidar(pre){
+  const pap = papeisConvite();
+  const adm = S.eu.papel === 'admin';
+  modal(`<div class="md-h"><h2 style="margin:0">Convidar pessoa</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">${adm?'O convite do administrador já libera o acesso.':'Você será o superior imediato. O acesso é liberado depois da aprovação do administrador.'}</p>
+    ${pre?`<div class="expl"><b>${esc(pre.nome)}</b></div>`:`<label for="cv-q">Nome (mínimo 3 letras)</label>
+      <input class="in" id="cv-q" autocomplete="off" placeholder="Buscar quem ainda não tem acesso"><div id="cv-r" style="margin-top:8px"></div>`}
+    <label for="cv-p">Função</label>
+    <select class="in" id="cv-p">${pap.map(k=>`<option value="${k}">${PAPEL[k]}</option>`).join('')}</select>
+    ${adm?`<label for="cv-s">Superior imediato</label><select class="in" id="cv-s"><option value="">— definir depois —</option>${
+      (S.pessoas||[]).filter(p=>p.status==='ativo'&&LIDER.includes(p.papel)).map(l=>`<option value="${l.id}">${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('')}</select>`:''}
+    <button class="btn p w" id="cv-ok" ${pre?'':'disabled'}>Gerar convite</button><div id="cv-m2"></div>`);
+  let escolhido = pre ? pre.id : null, t;
+  if (!pre) $('cv-q').oninput = () => { clearTimeout(t); t = setTimeout(async () => {
+    const q = $('cv-q').value.trim();
+    if (q.length < 3) { $('cv-r').innerHTML = ''; return; }
+    try {
+      const r = await rpc('he_busca_sem_acesso', {p_token:S.token, p_q:q});
+      $('cv-r').innerHTML = r.length ? r.map(x=>`<label class="opt" style="margin-bottom:6px"><input type="radio" name="cvp" value="${x.id}">
+        <div><b>${esc(x.nome)}</b><span>${esc(x.empresa||'')}${x.convite_pendente?' · já tem convite em aberto (gerar de novo substitui)':''}</span></div></label>`).join('')
+        : '<p class="muted">Ninguém sem acesso com esse nome.</p>';
+      document.querySelectorAll('input[name=cvp]').forEach(i => i.onchange = () => { escolhido = i.value; $('cv-ok').disabled = false; });
+    } catch(e){ msg('cv-m2', e.message); }
+  }, 250); };
+  $('cv-ok').onclick = async () => {
+    if (!escolhido) return;
+    try {
+      const r = await rpc('he_convidar', {p_token:S.token, p_pessoas:[escolhido], p_papel:$('cv-p').value,
+        p_superior: adm ? ($('cv-s').value || null) : null});
+      S.pessoas = null; mostrarConvites(r);
+    } catch(e){ msg('cv-m2', e.message); }
+  };
+}
+function convitesLote(){
+  const sem = (S.pessoas||[]).filter(p => p.status==='sem_acesso' && p.no_quark);
+  const emp = [...new Set(sem.map(p=>p.empresa||''))];
+  modal(`<div class="md-h"><h2 style="margin:0">Convites em lote</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">Gera um convite para cada colaborador que ainda não tem acesso e baixa uma planilha (CSV) com nome, código e convite, para entregar aos supervisores.</p>
+    <label>Empresa</label><select class="in" id="lt-e"><option value="">Todas</option>${emp.map(e=>`<option>${esc(e)}</option>`).join('')}</select>
+    <label><input type="checkbox" id="lt-n" checked> Pular quem já tem convite em aberto</label>
+    <label>Superior imediato de todos do lote</label><select class="in" id="lt-s"><option value="">— definir depois, pessoa por pessoa —</option>${
+      (S.pessoas||[]).filter(p=>p.status==='ativo'&&LIDER.includes(p.papel)).map(l=>`<option value="${l.id}">${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('')}</select>
+    <div class="expl" style="margin-top:10px">Dica: para cada pessoa já ficar ligada ao superior certo, o caminho mais simples é cada líder convidar a própria equipe pelo botão "+ Convidar pessoa" na aba Equipe. Use o lote para quem ficar de fora.</div>
+    <p class="sub" id="lt-c" style="margin-top:8px"></p>
+    <button class="btn p w" id="lt-ok">Gerar e baixar CSV</button><div id="lt-m"></div>`);
+  const alvo = () => sem.filter(p => (!$('lt-e').value || p.empresa===$('lt-e').value) && (!$('lt-n').checked || !p.convite_pendente));
+  const conta = () => $('lt-c').textContent = alvo().length + ' pessoa(s) vão receber convite. Os convites valem 30 dias.';
+  $('lt-e').onchange = conta; $('lt-n').onchange = conta; conta();
+  $('lt-ok').onclick = async () => {
+    const ids = alvo().map(p=>p.id); if (!ids.length) return msg('lt-m','Ninguém para convidar.');
+    busy($('lt-ok'),true);
+    try {
+      const r = await rpc('he_convidar', {p_token:S.token, p_pessoas:ids, p_papel:'colaborador', p_superior:$('lt-s').value || null});
+      const csv = '﻿' + [['Nome','Código de acesso','Convite','Mensagem'], ...r.map(x=>[x.nome, x.codigo, x.convite, textoConvite(x)])]
+        .map(l => l.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+      a.download = `convites_horas_i9_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+      msg('lt-m', r.length + ' convites gerados. Guarde o arquivo com cuidado: cada convite dá acesso a uma pessoa.', true);
+      S.pessoas = null;
+    } catch(e){ msg('lt-m', e.message); busy($('lt-ok'),false); }
+  };
+}
+
+/* ════ PIN ════ */
+$('b-pin').onclick = () => {
+  modal(`<div class="md-h"><h2 style="margin:0">Trocar PIN</h2><button class="x-btn" data-close>×</button></div>
+    <label>PIN atual</label><input class="in" id="p-a" type="password" inputmode="numeric" maxlength="6">
+    <label>Novo PIN (6 números)</label><input class="in" id="p-n" type="password" inputmode="numeric" maxlength="6">
+    <button class="btn p w" id="p-ok">Trocar</button><div id="p-m"></div>`);
+  $('p-ok').onclick = async () => {
+    try { await rpc('he_trocar_pin', {p_token:S.token, p_pin_atual:$('p-a').value, p_pin_novo:$('p-n').value}); msg('p-m','PIN alterado.',true); }
+    catch(e){ msg('p-m', e.message); }
+  };
+};
+
+/* ════ modal ════ */
+function modal(html){
+  $('modal').innerHTML = `<div class="ov"><div class="md" role="dialog" aria-modal="true">${html}</div></div>`;
+  $('modal').querySelector('.ov').onclick = e => { if (e.target.classList.contains('ov')) fecharModal(); };
+  $('modal').querySelectorAll('[data-close]').forEach(b => b.onclick = fecharModal);
+}
+function fecharModal(){ $('modal').innerHTML = ''; }
+function alertar(t){ modal(`<div class="md-h"><h2 style="margin:0">Atenção</h2><button class="x-btn" data-close>×</button></div><div class="msg e">${esc(t)}</div>`); }
+
+/* ════ início ════ */
+S.token = store.get('he_token');
+if (S.token) iniciar(); else telaLogin();
+</script>
+</body>
+</html>
