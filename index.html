@@ -137,6 +137,31 @@ tfoot td{font-weight:700;border-top:2px solid var(--line)}
 .md-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .x-btn{background:none;border:0;font-size:22px;cursor:pointer;color:var(--ink3)}
 .loading{padding:30px;text-align:center;color:var(--ink3)}
+
+/* relatório impresso */
+#print{display:none}
+@media print{
+  body{background:#fff}
+  body>*:not(#print){display:none!important}
+  #print{display:block;color:#000;font-size:11px}
+  @page{size:A4;margin:12mm}
+}
+.rp h1{font-size:16px;margin:0}
+.rp h3{font-size:12px;margin:14px 0 4px;text-transform:uppercase;letter-spacing:.5px}
+.rp .cab{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:6px;margin-bottom:8px}
+.rp .id{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px}
+.rp table{width:100%;border-collapse:collapse}
+.rp table{font-size:10px}
+.rp th,.rp td{border:1px solid #999;padding:3px 5px;text-align:right;vertical-align:top;white-space:normal;color:#000}
+.rp th{background:#eee;font-weight:600;font-size:9px}
+.rp td:nth-child(n){word-break:break-word}
+.rp td:first-child{white-space:nowrap;word-break:normal}
+.rp{padding-right:2px}
+.rp td.l,.rp th.l{text-align:left}
+.rp tr{break-inside:avoid}
+.rp .ass{display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;margin-top:40px;text-align:center}
+.rp .ass div{border-top:1px solid #000;padding-top:4px}
+.rp .rod{margin-top:12px;color:#555;font-size:10px}
 </style>
 </head>
 <body>
@@ -198,6 +223,7 @@ tfoot td{font-weight:700;border-top:2px solid var(--line)}
 </div>
 
 <div id="modal"></div>
+<div id="print"></div>
 
 <script>
 /* ════ CONFIGURAÇÃO ════
@@ -500,7 +526,9 @@ async function detalhe(p){
     const ev = dias.filter(d => linhasDia(d).length || d.autorizacao || /interst/i.test(d.observacao||''));
     modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
       <p class="sub">Saldo de folga: <b>${hm(p.saldo)}</b> · gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)}</p>
-      ${podeAut?'<button class="btn p s" id="b-aut" style="margin:10px 0">+ Autorizar HE</button>':''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
+        ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button>':''}
+        <button class="btn s" id="b-imp">Imprimir relatório do mês</button></div>
       <h3 style="margin-top:10px">Dias com HE ou compensação</h3>
       ${ev.map(d=>{const it=linhasDia(d);return `<div class="day"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
         <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')}
@@ -517,12 +545,71 @@ async function detalhe(p){
       </div>`).join('')||'<p class="muted">Nenhuma neste mês.</p>'}
       <div id="d-m"></div>`);
     if (podeAut) $('b-aut').onclick = () => formHE(p);
+    $('b-imp').onclick = () => imprimir(p, dias, minhas);
     document.querySelectorAll('[data-imps]').forEach(b => b.onclick = async () => {
       const id = b.dataset.imps, v = document.querySelector(`[data-imp="${id}"]`).value;
       try { await rpc('he_registrar_impacto', {p_token:S.token, p_id:+id, p_impacto:v}); msg('d-m','Impacto salvo.',true); }
       catch(e){ msg('d-m', e.message); }
     });
   } catch(e){ modal(`<div class="msg e">${esc(e.message)}</div>`); }
+}
+
+/* ── relatório individual para impressão / PDF ──
+   Valores em R$ só aparecem quando o banco devolve hora_base (RH e administrador). */
+function imprimir(p, dias, auts){
+  let mesTxt = new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  mesTxt = mesTxt.charAt(0).toUpperCase() + mesTxt.slice(1);
+  const dt = s => s.split('-').reverse().join('/');
+  const ev = dias.filter(d => d.he50||d.he75||d.he100||d.noturna||d.hn||d.desconto||d.autorizacao||d.observacao);
+  const hb = p.hora_base != null ? +p.hora_base : null;
+  const not = (p.noturna||0) + (p.hn||0);
+  let fin = '';
+  if (hb) {
+    const r = rubricas(p, S.ordem);
+    const v = {he50:r.he50/60*hb*1.5, he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2};
+    const nomeOrd = {'50_primeiro':'abater primeiro as de 50%','100_primeiro':'abater primeiro as de 100%','proporcional':'abatimento proporcional'}[S.ordem];
+    fin = `<h3>Acerto financeiro (hora base ${brl(hb)} · ${nomeOrd})</h3>
+      <table><thead><tr><th class="l">Rubrica</th><th>Horas</th><th>Fator</th><th>Valor</th></tr></thead><tbody>
+      <tr><td class="l">HE 50% não compensada</td><td>${hm(r.he50)}</td><td>1,50</td><td>${brl(v.he50)}</td></tr>
+      <tr><td class="l">HE 75% não compensada</td><td>${hm(r.he75)}</td><td>1,75</td><td>${brl(v.he75)}</td></tr>
+      <tr><td class="l">HE 100% não compensada</td><td>${hm(r.he100)}</td><td>2,00</td><td>${brl(v.he100)}</td></tr>
+      <tr><td class="l">Adicional noturno</td><td>${hm(not)}</td><td>0,20</td><td>${brl(v.not)}</td></tr>
+      <tr><th class="l">Total a pagar</th><th></th><th></th><th>${brl(v.he50+v.he75+v.he100+v.not)}</th></tr>
+      </tbody></table>
+      ${p.desconto_comum?`<p>Desconto comum de folha (horas a menos além da folga gerada): <b>${hm(p.desconto_comum)}</b></p>`:''}`;
+  }
+  $('print').innerHTML = `<div class="rp">
+    <div class="cab"><div><h1>Relatório mensal de horas</h1><div>i9 Engenharia e Tecnologia · Plano Fim de HE</div></div>
+      <div style="text-align:right"><b style="font-size:14px">${esc(mesTxt)}</b><div>Fonte: ponto eletrônico (Quark)</div></div></div>
+    <div class="id">
+      <div><b>Nome:</b> ${esc(p.nome)}</div><div><b>Função:</b> ${esc(PAPEL[p.papel]||'—')}</div>
+      <div><b>Empresa:</b> ${esc(p.empresa||'—')}</div><div><b>Superior imediato:</b> ${esc(p.superior||'—')}</div>
+    </div>
+    <h3>Resumo do mês</h3>
+    <table><thead><tr><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Folga gerada</th><th>Horas a menos</th><th>Compensado</th><th>Saldo pago</th><th>Noturno</th></tr></thead>
+      <tbody><tr><td>${hm(p.he50)}</td><td>${hm(p.he75)}</td><td>${hm(p.he100)}</td><td>${hm(p.normalizado)}</td>
+        <td>${hm(p.descontos)}</td><td>${hm(p.compensado)}</td><td><b>${hm(p.saldo)}</b></td><td>${hm(not)}</td></tr></tbody></table>
+    <p>Folga gerada = HE 50% × 1,5 + HE 75% × 1,75 + HE 100% × 2,0. Horas a menos não contam dias abonados (férias, afastamento, atestado).
+      O saldo não compensado até o fim do mês é pago; não passa para o mês seguinte.</p>
+    ${fin}
+    <h3>Dias com HE, noturno ou horas a menos</h3>
+    ${ev.length?`<table><thead><tr><th class="l">Data</th><th class="l">Batidas</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Noturno</th><th>A menos</th><th class="l">Autorização / observação</th></tr></thead><tbody>
+      ${ev.map(d=>`<tr><td class="l">${dt(d.data)} ${DIA[new Date(d.data+'T12:00').getDay()]}</td><td class="l">${esc(d.batidas||'')}</td>
+        <td>${d.he50?hm(d.he50):''}</td><td>${d.he75?hm(d.he75):''}</td><td>${d.he100?hm(d.he100):''}</td>
+        <td>${(d.noturna+d.hn)?hm(d.noturna+d.hn):''}</td><td>${d.desconto?hm(d.desconto)+(d.abonado?' (abonado)':''):''}</td>
+        <td class="l">${d.autorizacao?esc(d.autorizacao):(d.he50+d.he75+d.he100?'<b>sem autorização</b>':'')}${d.observacao?' · '+esc(d.observacao):''}</td></tr>`).join('')}
+    </tbody></table>`:'<p>Nenhum registro no mês.</p>'}
+    <h3>Autorizações de HE</h3>
+    ${auts.length?`<table><thead><tr><th class="l">Data</th><th class="l">Horário</th><th class="l">Motivo</th><th class="l">Situação</th><th class="l">Decidido por</th><th class="l">Atividade impactada</th></tr></thead><tbody>
+      ${auts.map(a=>`<tr><td class="l">${dt(a.data)}</td><td class="l">${a.inicio.slice(0,5)}–${a.fim.slice(0,5)}</td><td class="l">${esc(a.motivo)}</td>
+        <td class="l">${esc(a.status)}</td><td class="l">${esc(a.decisor||'')}</td><td class="l">${esc(a.impacto||'')}</td></tr>`).join('')}
+    </tbody></table>`:'<p>Nenhuma autorização no mês.</p>'}
+    <div class="ass"><div>Colaborador</div><div>Superior imediato</div><div>RH</div></div>
+    <div class="rod">Emitido em ${new Date().toLocaleString('pt-BR')} por ${esc(S.eu.nome)} · Horas i9</div>
+  </div>`;
+  const limpar = () => { $('print').innerHTML = ''; window.removeEventListener('afterprint', limpar); };
+  window.addEventListener('afterprint', limpar);
+  setTimeout(() => window.print(), 50);
 }
 
 /* ════ FECHAMENTO RH ════ */
@@ -582,7 +669,7 @@ function vRH(){
       <div class="tw"><table class="resp">
         <thead><tr><th class="l">Nome</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Gerado</th><th>Compensado</th>
           <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Hora base</th><th>Total R$</th></tr></thead>
-        <tbody>${calc.map(c=>`<tr>
+        <tbody>${calc.map((c,i)=>`<tr class="click" data-r="${i}">
           <td class="l">${esc(c.nome)}<div class="sub">${esc(c.empresa||'')}</div></td>
           <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
           <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td>
@@ -593,8 +680,11 @@ function vRH(){
           <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td><td></td>
           <td>${brl(sum(c=>c.total))}</td></tr></tfoot>
       </table></div>
-      <p class="sub" style="margin-top:8px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
+      <p class="sub" style="margin-top:8px">Clique em uma pessoa para ver os dias e imprimir o relatório individual.
+        Para imprimir o de quem não aparece aqui, use a aba ${S.eu.papel==='rh'?'Pessoas':'Equipe'}.</p>
+      <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
     </div>`;
+  document.querySelectorAll('tr[data-r]').forEach(tr => tr.onclick = () => detalhe(calc[+tr.dataset.r]));
   document.querySelectorAll('input[name=ord]').forEach(i => i.onchange = async () => {
     try { await rpc('he_config_set', {p_token:S.token, p_chave:'ordem_abatimento', p_valor:i.value}); S.ordem = i.value; vRH(); }
     catch(e){ msg('o-m', e.message); }
