@@ -138,6 +138,19 @@ tfoot td{font-weight:700;border-top:2px solid var(--line)}
 .x-btn{background:none;border:0;font-size:22px;cursor:pointer;color:var(--ink3)}
 .loading{padding:30px;text-align:center;color:var(--ink3)}
 
+/* filtro de grupo / setor */
+.filtro{margin-bottom:12px}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips.sub{margin-top:6px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:16px;padding:6px 12px;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink2)}
+.chip span{color:var(--ink3);font-weight:500;margin-left:2px}
+.chip.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chip.on span{color:#ccc}
+.chips.sub .chip{font-size:12px;padding:4px 10px}
+tr.grp td{background:#F4F4F4;text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.4px;color:var(--ink2);padding:6px 8px}
+tr.grp td span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--ink3);margin-left:6px}
+@media(max-width:640px){table.resp tr.grp{border:0;padding:8px 2px 2px;margin:10px 0 4px;background:none}table.resp tr.grp td{background:none;display:block}}
+
 /* relatório impresso */
 #print{display:none}
 @media print{
@@ -242,6 +255,47 @@ const brl = v => (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toFixed(2).replace('
 const PAPEL = {colaborador:'Colaborador',supervisor:'Supervisor de campo',coordenador:'Coordenador',gc:'Gestor de Contrato',rh:'RH',admin:'Administrador'};
 const LIDER = ['supervisor','coordenador','gc','admin'];
 const DIA = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+/* ── grupos de empresa e setores ── */
+const SETORES_ENG = ['Gestão de Engenharia','Automação','Elétrica','Mecânica','Planejamento','Projetos','SESMT','Almoxarifado'];
+const SETORES_ADM = ['Diretoria','Administrativo','Comercial','Financeiro','RH / DP','Suprimentos','Logística / Frota','TI'];
+const SETORES = [...SETORES_ENG, ...SETORES_ADM];
+const GRUPOS = ['I9 MATRIZ','I9 FILIAL','FIO FORTE','TODOS'];
+function grupo(emp){
+  const e = (emp||'').toUpperCase();
+  if (/FIO\s*FORTE|FIOFORTE/.test(e)) return 'FIO FORTE';
+  if (/\bI9\b/.test(e)) return /\bRJ\b|FILIAL/.test(e) ? 'I9 FILIAL' : 'I9 MATRIZ';
+  return 'OUTRAS';
+}
+const ehEng = p => !p.setor || SETORES_ENG.includes(p.setor);     // sem setor fica visível até ser classificado
+const usaFiltro = () => S.eu && (S.eu.papel === 'admin' || S.eu.papel === 'rh');
+function filtrar(lista){
+  if (!usaFiltro()) return lista;
+  return lista.filter(p => (S.f.g === 'TODOS' || grupo(p.empresa) === S.f.g)
+    && !(S.f.g === 'I9 MATRIZ' && S.f.eng && !ehEng(p)));
+}
+function porSetor(lista){
+  const m = new Map();
+  for (const p of lista) { const k = p.setor || 'Sem setor'; if (!m.has(k)) m.set(k, []); m.get(k).push(p); }
+  const ordem = k => k === 'Sem setor' ? 999 : (SETORES.indexOf(k) + 1 || 500);
+  return [...m.entries()].sort((a,b) => ordem(a[0]) - ordem(b[0]));
+}
+function barraFiltro(base){
+  if (!usaFiltro()) return '';
+  const n = g => g === 'TODOS' ? base.length : base.filter(p => grupo(p.empresa) === g).length;
+  const chip = (on, attr, txt) => `<button class="chip ${on?'on':''}" ${attr}>${txt}</button>`;
+  const nEng = base.filter(p => grupo(p.empresa) === 'I9 MATRIZ' && ehEng(p)).length;
+  return `<div class="filtro">
+    <div class="chips">${GRUPOS.filter(g => g === 'TODOS' || n(g)).map(g => chip(S.f.g===g, `data-g="${g}"`,
+      `${g==='TODOS'?'Todos':g} <span>${n(g)}</span>`)).join('')}</div>
+    ${S.f.g==='I9 MATRIZ'?`<div class="chips sub">${chip(S.f.eng,'data-eng="1"',`Só Engenharia <span>${nEng}</span>`)}${chip(!S.f.eng,'data-eng="0"',`Todos os setores <span>${n('I9 MATRIZ')}</span>`)}</div>`:''}
+  </div>`;
+}
+function ligarFiltro(redesenhar){
+  document.querySelectorAll('.filtro [data-g]').forEach(b => b.onclick = () => { S.f.g = b.dataset.g; salvarFiltro(); redesenhar(); });
+  document.querySelectorAll('.filtro [data-eng]').forEach(b => b.onclick = () => { S.f.eng = b.dataset.eng === '1'; salvarFiltro(); redesenhar(); });
+}
+function salvarFiltro(){ store.set('he_filtro', JSON.stringify(S.f)); }
 const store = {
   get(k){ try { return localStorage.getItem(k); } catch(e){ return null; } },
   set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
@@ -335,6 +389,8 @@ async function iniciar(){
   try { S.eu = await rpc('he_eu', {p_token:S.token}); }
   catch(e){ return telaLogin(); }
   S.ordem = S.eu.ordem_abatimento || '50_primeiro';
+  try { S.f = JSON.parse(store.get('he_filtro')) || null; } catch(e){ S.f = null; }
+  if (!S.f || !GRUPOS.includes(S.f.g)) S.f = S.eu.papel === 'admin' ? {g:'I9 MATRIZ', eng:true} : {g:'TODOS', eng:false};
   $('v-login').classList.add('hidden'); $('v-app').classList.remove('hidden');
   const pn = S.eu.nome.split(' ');
   $('u-nome').textContent = window.innerWidth < 640 && pn.length > 2 ? pn[0] + ' ' + pn[pn.length-1] : S.eu.nome;
@@ -474,11 +530,21 @@ function formHE(pessoa){
 
 /* ════ EQUIPE ════ */
 function vEquipe(){
-  const eq = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
+  const base = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
+  const eq = filtrar(base);
+  const linhaEq = r => `<tr class="click" data-i="${eq.indexOf(r)}" data-n="${esc(r.nome.toLowerCase())}">
+          <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.cargo?' · '+esc(r.cargo):''}${r.superior?' · '+esc(r.superior):''}</div></td>
+          <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
+          <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
+          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span>`:''}</td></tr>`;
+  const corpo = usaFiltro()
+    ? porSetor(eq).map(([k,ps]) => `<tr class="grp"><td colspan="6">${esc(k)}<span>${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}</span></td></tr>` + ps.map(linhaEq).join('')).join('')
+    : eq.map(linhaEq).join('');
   const comHE = eq.filter(r => r.normalizado > 0 || r.compensado > 0);
   const tot = k => eq.reduce((s,r)=>s+(r[k]||0),0);
   const semAut = eq.reduce((s,r)=>s+r.dias_sem_aut,0);
   $('main').innerHTML = `
+    ${barraFiltro(base)}
     ${S.pend.length?`<div class="card"><h2>Pedidos para decidir (${S.pend.length})</h2>
       ${S.pend.map(p=>`<div class="pend"><b>${esc(p.nome)}</b>
         <div>${new Date(p.data+'T12:00').toLocaleDateString('pt-BR',{weekday:'short',day:'2-digit',month:'2-digit'})} · ${p.inicio.slice(0,5)}–${p.fim.slice(0,5)}</div>
@@ -498,12 +564,7 @@ function vEquipe(){
       ${eq.length>12?'<input class="in" id="b-eq" placeholder="Buscar nome" style="margin-bottom:10px">':''}
       <div class="tw"><table class="resp">
         <thead><tr><th class="l">Nome</th><th>HE feitas</th><th>Folga gerada</th><th>Compensado</th><th>Saldo</th><th class="l">Alertas</th></tr></thead>
-        <tbody>${eq.map((r,i)=>`<tr class="click" data-i="${i}" data-n="${esc(r.nome.toLowerCase())}">
-          <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.superior?' · '+esc(r.superior):''}</div></td>
-          <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
-          <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
-          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span>`:''}</td></tr>`).join('')}
-        </tbody></table></div>
+        <tbody>${corpo}</tbody></table></div>
       ${eq.length?'':'<p class="muted">Ninguém da equipe aprovado ainda. As pessoas aparecem aqui quando o cadastro delas indicar você como superior.</p>'}
     </div>`;
   document.querySelectorAll('[data-dec]').forEach(b => b.onclick = async () => {
@@ -512,7 +573,9 @@ function vEquipe(){
   document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => detalhe(eq[+tr.dataset.i]));
   if ($('b-conv-eq')) $('b-conv-eq').onclick = () => convidar();
   if ($('b-eq')) $('b-eq').oninput = () => { const q = $('b-eq').value.toLowerCase();
-    document.querySelectorAll('tr[data-i]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
+    document.querySelectorAll('tr[data-i]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none');
+    document.querySelectorAll('tr.grp').forEach(tr => tr.style.display = q ? 'none' : ''); };
+  ligarFiltro(vEquipe);
 }
 async function detalhe(p){
   modal('<div class="loading">Carregando…</div>');
@@ -634,7 +697,8 @@ function rubricas(r, ordem){
   return out;
 }
 function vRH(){
-  const rows = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0);
+  const base = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0);
+  const rows = filtrar(base);
   const calc = rows.map(r => {
     const p = rubricas(r, S.ordem), hb = r.hora_base;
     const not = (r.noturna + r.hn);
@@ -646,7 +710,17 @@ function vRH(){
   const sum = (f) => calc.reduce((s,c)=>s+(f(c)||0),0);
   const semHB = calc.filter(c => !c.hora_base).length;
   const op = (k,t,d) => `<label class="opt ${S.ordem===k?'on':''}"><input type="radio" name="ord" value="${k}" ${S.ordem===k?'checked':''}><div><b>${t}</b><span>${d}</span></div></label>`;
+  const linhaRH = c => `<tr class="click" data-r="${calc.indexOf(c)}">
+          <td class="l">${esc(c.nome)}<div class="sub">${esc(c.cargo||c.empresa||'')}</div></td>
+          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
+          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td>
+          <td data-l="Hora base">${c.hora_base?brl(+c.hora_base):'<span class="tag t-wait">cadastrar</span>'}</td>
+          <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b></td></tr>`;
+  const corpoRH = usaFiltro()
+    ? porSetor(calc).map(([k,cs]) => `<tr class="grp"><td colspan="12">${esc(k)}<span>${cs.length} pessoas · saldo ${hm(cs.reduce((s,c)=>s+c.saldo,0))} · ${brl(cs.reduce((s,c)=>s+(c.total||0),0))}</span></td></tr>` + cs.map(linhaRH).join('')).join('')
+    : calc.map(linhaRH).join('');
   $('main').innerHTML = `
+    ${barraFiltro(base)}
     <div class="card"><h2>Ordem de abatimento das compensações</h2>
       <div class="expl">Quando a pessoa compensa parte das horas, é preciso definir quais faixas de HE foram quitadas primeiro.
         <b>O valor total pago é o mesmo em qualquer opção</b>, porque cada faixa carrega o próprio fator (50% = 1,5 · 75% = 1,75 · 100% = 2,0).
@@ -664,17 +738,12 @@ function vRH(){
       <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':'HE + adicional noturno'}</div></div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      <h2 style="margin:0">Fechamento de ${new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}</h2>
+      <h2 style="margin:0">Fechamento de ${new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}${usaFiltro()&&S.f.g!=='TODOS'?' · '+S.f.g+(S.f.g==='I9 MATRIZ'&&S.f.eng?' · Engenharia':''):''}</h2>
       <button class="btn s" id="b-csv">Exportar CSV</button></div>
       <div class="tw"><table class="resp">
         <thead><tr><th class="l">Nome</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Gerado</th><th>Compensado</th>
           <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Hora base</th><th>Total R$</th></tr></thead>
-        <tbody>${calc.map((c,i)=>`<tr class="click" data-r="${i}">
-          <td class="l">${esc(c.nome)}<div class="sub">${esc(c.empresa||'')}</div></td>
-          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
-          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td>
-          <td data-l="Hora base">${c.hora_base?brl(+c.hora_base):'<span class="tag t-wait">cadastrar</span>'}</td>
-          <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b></td></tr>`).join('')}</tbody>
+        <tbody>${corpoRH}</tbody>
         <tfoot><tr><td class="l">Total</td><td>${hm(sum(c=>c.he50))}</td><td>${hm(sum(c=>c.he75))}</td><td>${hm(sum(c=>c.he100))}</td>
           <td>${hm(sum(c=>c.normalizado))}</td><td>${hm(sum(c=>c.compensado))}</td>
           <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td><td></td>
@@ -685,21 +754,23 @@ function vRH(){
       <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
     </div>`;
   document.querySelectorAll('tr[data-r]').forEach(tr => tr.onclick = () => detalhe(calc[+tr.dataset.r]));
+  ligarFiltro(vRH);
   document.querySelectorAll('input[name=ord]').forEach(i => i.onchange = async () => {
     try { await rpc('he_config_set', {p_token:S.token, p_chave:'ordem_abatimento', p_valor:i.value}); S.ordem = i.value; vRH(); }
     catch(e){ msg('o-m', e.message); }
   });
   $('b-csv').onclick = () => {
-    const h = ['Nome','Empresa','HE50 (h)','HE75 (h)','HE100 (h)','Gerado (h normais)','Compensado (h normais)',
+    const h = ['Nome','Empresa','Grupo','Setor','HE50 (h)','HE75 (h)','HE100 (h)','Gerado (h normais)','Compensado (h normais)',
       'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Hora base','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Total'];
     const n = v => (v/60).toFixed(2).replace('.',','), r2 = v => v==null?'':v.toFixed(2).replace('.',',');
-    const L = calc.map(c => [c.nome, c.empresa||'', n(c.he50), n(c.he75), n(c.he100), n(c.normalizado), n(c.compensado),
+    const L = calc.map(c => [c.nome, c.empresa||'', grupo(c.empresa), c.setor||'', n(c.he50), n(c.he75), n(c.he100), n(c.normalizado), n(c.compensado),
       n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), c.hora_base?r2(+c.hora_base):'',
       r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.total)]);
     const csv = '﻿' + [h, ...L].map(l => l.map(x => `"${String(x).replace(/"/g,'""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
-    a.download = `fechamento_he_${S.mes}_${S.ordem}.csv`; a.click();
+    const suf = usaFiltro() && S.f.g !== 'TODOS' ? '_' + S.f.g.replace(/\s/g,'') + (S.f.g==='I9 MATRIZ'&&S.f.eng?'_ENG':'') : '';
+    a.download = `fechamento_he_${S.mes}${suf}_${S.ordem}.csv`; a.click();
   };
 }
 
@@ -713,7 +784,8 @@ async function vCad(){
     lideres.map(l=>`<option value="${l.id}" ${l.id===sel?'selected':''}>${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('');
   const opPap = (sel) => ['colaborador','supervisor','coordenador','gc','rh'].map(k=>`<option value="${k}" ${k===sel?'selected':''}>${PAPEL[k]}</option>`).join('');
   const pend = ps.filter(p=>p.status==='pendente');
-  const ativos = ps.filter(p=>p.status!=='pendente');
+  const baseCad = ps.filter(p=>p.status!=='pendente');
+  const ativos = filtrar(baseCad);
   const cont = s => ps.filter(p=>p.status===s).length;
   $('main').innerHTML = `
     ${adm?`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -734,10 +806,12 @@ async function vCad(){
     <div class="card"><div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:space-between;align-items:center;margin-bottom:8px">
       <h2 style="margin:0">Pessoas</h2>
       <div style="display:flex;gap:6px;flex-wrap:wrap">${adm?'<button class="btn p s" id="b-conv-ad">+ Convidar</button><button class="btn s" id="b-lote">Convites em lote</button><button class="btn s" id="b-nova">+ Pessoa fora do ponto</button>':''}</div></div>
+      ${barraFiltro(baseCad)}
       <input class="in" id="busca" placeholder="Buscar nome" style="margin-bottom:10px">
-      <div class="tw"><table><thead><tr><th class="l">Nome</th><th class="l">Função</th><th class="l">Superior</th><th class="l">Acesso</th><th>Hora base</th><th></th></tr></thead>
+      <div class="tw"><table><thead><tr><th class="l">Nome</th><th class="l">Setor</th><th class="l">Função</th><th class="l">Superior</th><th class="l">Acesso</th><th>Hora base</th><th></th></tr></thead>
         <tbody id="t-pes">${ativos.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}">
-          <td class="l">${esc(p.nome)}<div class="sub">código ${p.codigo} · ${esc(p.empresa||'')}${p.matricula?' · mat. '+esc(p.matricula):''}</div></td>
+          <td class="l">${esc(p.nome)}<div class="sub">código ${p.codigo} · ${esc(p.cargo||p.empresa||'')}${p.matricula?' · mat. '+esc(p.matricula):''}</div></td>
+          <td class="l">${p.setor?esc(p.setor):'<span class="tag t-wait">classificar</span>'}</td>
           <td class="l">${p.status==='ativo'?PAPEL[p.papel]:'—'}</td><td class="l">${esc(p.superior||'—')}</td>
           <td class="l"><span class="tag ${p.status==='ativo'?'t-ok':p.status==='bloqueado'?'t-no':p.convite_pendente?'t-wait':'t-gray'}">${p.status==='sem_acesso'?(p.convite_pendente?'convite enviado':'sem acesso'):p.status}</span></td>
           <td>${p.hora_base?brl(+p.hora_base):'—'}</td>
@@ -757,6 +831,7 @@ async function vCad(){
   $('busca').oninput = () => { const q = $('busca').value.toLowerCase();
     document.querySelectorAll('#t-pes tr').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => editar(ps.find(p=>p.id===b.dataset.ed), opSup, opPap, adm));
+  ligarFiltro(vCad);
   if ($('b-aprt')) $('b-aprt').onclick = async () => {
     if (!confirm('Aprovar todos os pendentes com a função e o superior indicados no convite?')) return;
     try { const n = await rpc('he_admin_aprovar_todos', {p_token:S.token}); S.pessoas = null; carregar(); } catch(e){ alertar(e.message); }
@@ -776,7 +851,10 @@ async function vCad(){
 function editar(p, opSup, opPap, adm){
   modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
     ${adm?`<label>Função</label><select class="in" id="e-pap" ${p.papel==='admin'?'disabled':''}>${p.papel==='admin'?'<option>Administrador</option>':opPap(p.papel)}</select>
-    <label>Superior imediato</label><select class="in" id="e-sup">${opSup(p.superior_id)}</select>`:''}
+    <label>Superior imediato</label><select class="in" id="e-sup">${opSup(p.superior_id)}</select>
+    <label>Setor${p.cargo?' <span class="sub">('+esc(p.cargo)+')</span>':''}</label><select class="in" id="e-set"><option value="">— sem setor —</option>
+      <optgroup label="Engenharia">${SETORES_ENG.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup>
+      <optgroup label="Outras áreas">${SETORES_ADM.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup></select>`:''}
     <div class="row"><div><label>Matrícula</label><input class="in" id="e-mat" value="${esc(p.matricula||'')}"></div>
       <div><label>Hora base (R$)</label><input class="in" id="e-hb" inputmode="decimal" value="${p.hora_base??''}" placeholder="25,00"></div></div>
     <button class="btn p w" id="e-ok">Salvar</button>
@@ -791,7 +869,8 @@ function editar(p, opSup, opPap, adm){
     try { await rpc('he_admin_editar', {p_token:S.token, p_pessoa:p.id,
         p_papel: adm && $('e-pap') && p.papel!=='admin' ? $('e-pap').value : null,
         p_superior: adm ? ($('e-sup').value || null) : p.superior_id,
-        p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null});
+        p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null,
+        ...(adm ? {p_setor: $('e-set').value || null} : {})});
       fecharModal(); S.pessoas = null; carregar(); } catch(e){ msg('e-m', e.message); }
   };
   document.querySelectorAll('[data-ac]').forEach(b => b.onclick = async () => {
