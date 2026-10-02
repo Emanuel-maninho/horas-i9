@@ -151,6 +151,8 @@ tr.grp td{background:#F4F4F4;text-align:left;font-weight:700;font-size:12px;text
 tr.grp td:hover{background:#ECECEC}
 tr.grp .seta{display:inline-block;width:14px;transition:transform .15s;color:var(--ink3)}
 tr.grp.fechado .seta{transform:rotate(-90deg)}
+.lote{display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:#FFF4D6;border:1px solid #F0D58A;border-radius:10px;padding:8px 10px;margin-bottom:10px;position:sticky;top:0;z-index:5}
+.lote .in{margin:0;width:auto;flex:1 1 200px;padding:8px}
 .grp-acoes{display:flex;gap:6px;justify-content:flex-end;margin:-2px 0 8px}
 .lnk2{background:none;border:0;color:var(--ink2);font-size:12px;font-weight:600;cursor:pointer;text-decoration:underline;padding:2px 4px}
 /* telas largas: tabelas cabem sem rolagem lateral */
@@ -314,6 +316,15 @@ function barraFiltro(base){
 function ligarFiltro(redesenhar){
   document.querySelectorAll('.filtro [data-g]').forEach(b => b.onclick = () => { S.f.g = b.dataset.g; salvarFiltro(); redesenhar(); });
   document.querySelectorAll('.filtro [data-eng]').forEach(b => b.onclick = () => { S.f.eng = b.dataset.eng === '1'; salvarFiltro(); redesenhar(); });
+}
+/* líderes possíveis: qualquer pessoa com função de liderança, mesmo antes de ativar o acesso */
+function lideresTodos(excluir){
+  return (S.pessoas||[]).filter(p => p.status !== 'bloqueado' && LIDER.includes(p.papel) && p.id !== excluir)
+    .sort((a,b) => a.nome.localeCompare(b.nome));
+}
+function opcoesSuperior(sel, excluir, vazio){
+  return `<option value="">${vazio||'— sem superior —'}</option>` + lideresTodos(excluir).map(l =>
+    `<option value="${l.id}" ${l.id===sel?'selected':''}>${esc(l.nome)} (${PAPEL[l.papel]}${l.status!=='ativo'?' · ainda sem acesso':''})</option>`).join('');
 }
 function salvarFiltro(){ store.set('he_filtro', JSON.stringify(S.f)); }
 /* grupos de setor recolhíveis (estado lembrado por aparelho) */
@@ -832,9 +843,7 @@ async function vCad(){
   const ps = S.pessoas || await rpc('he_admin_pessoas', {p_token:S.token});
   S.pessoas = ps;
   const adm = S.eu.papel === 'admin';
-  const lideres = ps.filter(p => p.status==='ativo' && LIDER.includes(p.papel));
-  const opSup = (sel) => '<option value="">— sem superior —</option>' +
-    lideres.map(l=>`<option value="${l.id}" ${l.id===sel?'selected':''}>${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('');
+  const opSup = (sel, excl) => opcoesSuperior(sel, excl);
   const opPap = (sel) => ['colaborador','supervisor','coordenador','gc','rh'].map(k=>`<option value="${k}" ${k===sel?'selected':''}>${PAPEL[k]}</option>`).join('');
   const pend = ps.filter(p=>p.status==='pendente');
   const baseCad = ps.filter(p=>p.status!=='pendente');
@@ -871,11 +880,15 @@ async function vCad(){
         <input class="in" id="busca" placeholder="Buscar nome" style="flex:2 1 220px;margin:0">
         <select class="in" id="f-set" style="flex:1 1 180px;margin:0"><option value="">Todos os setores (${filtrados.length})</option>
           ${setoresPresentes.map(k=>`<option ${S.fSet===k?'selected':''}>${esc(k)}</option>`).join('')}</select></div>
-      <div class="tw"><table class="cmp"><thead><tr><th class="l click" data-ord="nome" title="Ordenar por nome">Nome${seta('nome')}</th><th class="l click" data-ord="setor" title="Ordenar por setor">Setor${seta('setor')}</th><th class="l">Função</th><th class="l">Superior</th><th class="l">Acesso</th><th>Hora base</th><th></th></tr></thead>
-        <tbody id="t-pes">${ativos.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}">
+      ${adm?`<div id="lote-bar" class="lote hidden"><b id="lote-n"></b>
+        <select class="in" id="lote-pap"><option value="">Função: manter</option>${opPap('')}</select>
+        <select class="in" id="lote-sup"><option value="__manter">Superior: manter</option>${opcoesSuperior(null, null, '— sem superior —')}</select>
+        <button class="btn p s" id="lote-ok">Aplicar aos selecionados</button><button class="lnk2" id="lote-x">limpar seleção</button></div>`:''}
+      <div class="tw"><table class="cmp"><thead><tr>${adm?'<th style="width:28px"><input type="checkbox" id="sel-todos" title="Selecionar todos da lista"></th>':''}<th class="l click" data-ord="nome" title="Ordenar por nome">Nome${seta('nome')}</th><th class="l click" data-ord="setor" title="Ordenar por setor">Setor${seta('setor')}</th><th class="l">Função</th><th class="l">Superior</th><th class="l">Acesso</th><th>Hora base</th><th></th></tr></thead>
+        <tbody id="t-pes">${ativos.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}">${adm?`<td><input type="checkbox" class="sel" value="${p.id}"></td>`:''}
           <td class="l">${esc(p.nome)}<div class="sub">código ${p.codigo} · ${esc(p.cargo||p.empresa||'')}${p.matricula?' · mat. '+esc(p.matricula):''}</div></td>
           <td class="l">${p.setor?esc(p.setor):'<span class="tag t-wait">classificar</span>'}</td>
-          <td class="l w">${p.status==='ativo'?PAPEL[p.papel]:'—'}</td><td class="l w">${esc(p.superior||'—')}</td>
+          <td class="l w">${p.papel==='colaborador'&&p.status!=='ativo'?'—':`<span class="${p.status==='ativo'?'':'muted'}">${PAPEL[p.papel]}</span>`}</td><td class="l w">${esc(p.superior||'—')}</td>
           <td class="l"><span class="tag ${p.status==='ativo'?'t-ok':p.status==='bloqueado'?'t-no':p.convite_pendente?'t-wait':'t-gray'}">${p.status==='sem_acesso'?(p.convite_pendente?'convite enviado':'sem acesso'):p.status}</span></td>
           <td>${p.hora_base?brl(+p.hora_base):'—'}</td>
           <td><button class="btn s" data-ed="${p.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>
@@ -896,6 +909,32 @@ async function vCad(){
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => editar(ps.find(p=>p.id===b.dataset.ed), opSup, opPap, adm));
   ligarFiltro(vCad);
   $('f-set').onchange = () => { S.fSet = $('f-set').value; vCad(); };
+  if (adm) {
+    const marcados = () => [...document.querySelectorAll('input.sel:checked')].map(i => i.value);
+    const atualizar = () => { const n = marcados().length;
+      $('lote-bar').classList.toggle('hidden', !n); $('lote-n').textContent = n + (n===1?' selecionada':' selecionadas'); };
+    document.querySelectorAll('input.sel').forEach(i => i.onchange = atualizar);
+    $('sel-todos').onchange = () => { document.querySelectorAll('#t-pes tr').forEach(tr => {
+      if (tr.style.display !== 'none') tr.querySelector('input.sel').checked = $('sel-todos').checked; }); atualizar(); };
+    $('lote-x').onclick = () => { document.querySelectorAll('input.sel').forEach(i => i.checked = false); $('sel-todos').checked = false; atualizar(); };
+    $('lote-ok').onclick = async () => {
+      const ids = marcados(), pap = $('lote-pap').value, sup = $('lote-sup').value;
+      if (!pap && sup === '__manter') return alertar('Escolha a função, o superior ou os dois.');
+      if (sup !== '__manter' && ids.includes(sup)) return alertar('O superior escolhido está entre os selecionados. Tire ele da seleção.');
+      const b = $('lote-ok'); busy(b, true); let feitos = 0, erros = [];
+      for (const id of ids) {
+        const p = ps.find(x => x.id === id);
+        b.textContent = `Aplicando ${++feitos}/${ids.length}…`;
+        try { await rpc('he_admin_editar', {p_token:S.token, p_pessoa:id,
+          p_papel: p.papel === 'admin' ? null : (pap || null),
+          p_superior: sup === '__manter' ? p.superior_id : (sup || null),
+          p_matricula: p.matricula, p_hora_base: p.hora_base, p_setor: p.setor}); }
+        catch(e){ erros.push(p.nome + ': ' + e.message); }
+      }
+      S.pessoas = null; await carregar();
+      if (erros.length) alertar(erros.join('\n'));
+    };
+  }
   document.querySelectorAll('th[data-ord]').forEach(th => th.onclick = () => { S.ordCad = th.dataset.ord; vCad(); });
   if ($('b-aprt')) $('b-aprt').onclick = async () => {
     if (!confirm('Aprovar todos os pendentes com a função e o superior indicados no convite?')) return;
@@ -916,7 +955,7 @@ async function vCad(){
 function editar(p, opSup, opPap, adm){
   modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
     ${adm?`<label>Função</label><select class="in" id="e-pap" ${p.papel==='admin'?'disabled':''}>${p.papel==='admin'?'<option>Administrador</option>':opPap(p.papel)}</select>
-    <label>Superior imediato</label><select class="in" id="e-sup">${opSup(p.superior_id)}</select>
+    <label>Superior imediato</label><select class="in" id="e-sup">${opSup(p.superior_id, p.id)}</select>
     <label>Setor${p.cargo?' <span class="sub">('+esc(p.cargo)+')</span>':''}</label><select class="in" id="e-set"><option value="">— sem setor —</option>
       <optgroup label="Engenharia">${SETORES_ENG.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup>
       <optgroup label="Outras áreas">${SETORES_ADM.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup></select>`:''}
@@ -979,9 +1018,8 @@ function convidar(pre){
     ${pre?`<div class="expl"><b>${esc(pre.nome)}</b></div>`:`<label for="cv-q">Nome (mínimo 3 letras)</label>
       <input class="in" id="cv-q" autocomplete="off" placeholder="Buscar quem ainda não tem acesso"><div id="cv-r" style="margin-top:8px"></div>`}
     <label for="cv-p">Função</label>
-    <select class="in" id="cv-p">${pap.map(k=>`<option value="${k}">${PAPEL[k]}</option>`).join('')}</select>
-    ${adm?`<label for="cv-s">Superior imediato</label><select class="in" id="cv-s"><option value="">— definir depois —</option>${
-      (S.pessoas||[]).filter(p=>p.status==='ativo'&&LIDER.includes(p.papel)).map(l=>`<option value="${l.id}">${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('')}</select>`:''}
+    <select class="in" id="cv-p">${pap.map(k=>`<option value="${k}" ${pre&&pre.papel===k?'selected':''}>${PAPEL[k]}</option>`).join('')}</select>
+    ${adm?`<label for="cv-s">Superior imediato</label><select class="in" id="cv-s">${opcoesSuperior(pre&&pre.superior_id, pre&&pre.id, '— definir depois —')}</select>`:''}
     <button class="btn p w" id="cv-ok" ${pre?'':'disabled'}>Gerar convite</button><div id="cv-m2"></div>`);
   let escolhido = pre ? pre.id : null, t;
   if (!pre) $('cv-q').oninput = () => { clearTimeout(t); t = setTimeout(async () => {
