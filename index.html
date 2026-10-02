@@ -959,6 +959,7 @@ function editar(p, opSup, opPap, adm){
     <label>Setor${p.cargo?' <span class="sub">('+esc(p.cargo)+')</span>':''}</label><select class="in" id="e-set"><option value="">— sem setor —</option>
       <optgroup label="Engenharia">${SETORES_ENG.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup>
       <optgroup label="Outras áreas">${SETORES_ADM.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup></select>`:''}
+    ${adm?`<label>Celular (WhatsApp)</label><input class="in" id="e-tel" inputmode="tel" value="${esc(p.telefone||'')}" placeholder="(27) 99999-9999">`:''}
     <div class="row"><div><label>Matrícula</label><input class="in" id="e-mat" value="${esc(p.matricula||'')}"></div>
       <div><label>Hora base (R$)</label><input class="in" id="e-hb" inputmode="decimal" value="${p.hora_base??''}" placeholder="25,00"></div></div>
     <button class="btn p w" id="e-ok">Salvar</button>
@@ -974,7 +975,7 @@ function editar(p, opSup, opPap, adm){
         p_papel: adm && $('e-pap') && p.papel!=='admin' ? $('e-pap').value : null,
         p_superior: adm ? ($('e-sup').value || null) : p.superior_id,
         p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null,
-        ...(adm ? {p_setor: $('e-set').value || null} : {})});
+        ...(adm ? {p_setor: $('e-set').value || null, p_telefone: $('e-tel').value.trim()} : {})});
       fecharModal(); S.pessoas = null; carregar(); } catch(e){ msg('e-m', e.message); }
   };
   document.querySelectorAll('[data-ac]').forEach(b => b.onclick = async () => {
@@ -995,13 +996,24 @@ function textoConvite(r){
   return `Olá, ${r.nome.split(' ')[0]}! Seu convite para o app Horas i9 é ${r.convite}. ` +
     `Abra ${linkApp()} e toque em "Tenho um convite". Depois, você entra com o código ${r.codigo} e o PIN que criar.`;
 }
+/* número de WhatsApp da pessoa (DDI 55; quem tem só 9 dígitos ganha o DDD 27) */
+function foneWa(tel){
+  let d = String(tel||'').replace(/\D/g,'').replace(/^0+/,'');
+  if (d.startsWith('55') && d.length >= 12) d = d.slice(2);
+  if (d.length === 9) d = '27' + d;
+  return d.length === 10 || d.length === 11 ? '55' + d : '';
+}
+function linkWa(r){
+  const p = (S.pessoas||[]).find(x => x.id === r.pessoa_id);
+  return `https://wa.me/${foneWa(p && p.telefone)}?text=${encodeURIComponent(textoConvite(r))}`;
+}
 function mostrarConvites(lista){
   modal(`<div class="md-h"><h2 style="margin:0">Convites gerados</h2><button class="x-btn" data-close>×</button></div>
     <p class="sub">Envie cada convite só para a própria pessoa. Vale por 30 dias e só pode ser usado uma vez.</p>
     ${lista.map((r,i)=>`<div class="pend"><b>${esc(r.nome)}</b>
       <div style="font-size:22px;font-weight:700;letter-spacing:2px;margin:4px 0">${esc(r.convite)}</div>
-      <div class="sub">Código de acesso: ${r.codigo}</div>
-      <div class="a"><a class="btn ok s" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(textoConvite(r))}">Enviar por WhatsApp</a>
+      <div class="sub">Código de acesso: ${r.codigo}${(()=>{const p=(S.pessoas||[]).find(x=>x.id===r.pessoa_id);return p&&p.telefone?' · '+esc(p.telefone):' · sem telefone cadastrado (escolha o contato no WhatsApp)';})()}</div>
+      <div class="a"><a class="btn ok s" target="_blank" rel="noopener" href="${linkWa(r)}">Enviar por WhatsApp</a>
         <button class="btn s" data-cp="${i}">Copiar mensagem</button></div></div>`).join('')
       || '<p class="muted">Nenhum convite gerado (a pessoa já tem acesso?).</p>'}
     <div id="cv-m"></div>`);
@@ -1038,7 +1050,7 @@ function convidar(pre){
     try {
       const r = await rpc('he_convidar', {p_token:S.token, p_pessoas:[escolhido], p_papel:$('cv-p').value,
         p_superior: adm ? ($('cv-s').value || null) : null});
-      S.pessoas = null; mostrarConvites(r);
+      mostrarConvites(r); S.pessoas = null;
     } catch(e){ msg('cv-m2', e.message); }
   };
 }
@@ -1049,26 +1061,32 @@ function convitesLote(){
     <p class="sub">Gera um convite para cada colaborador que ainda não tem acesso e baixa uma planilha (CSV) com nome, código e convite, para entregar aos supervisores.</p>
     <label>Empresa</label><select class="in" id="lt-e"><option value="">Todas</option>${emp.map(e=>`<option>${esc(e)}</option>`).join('')}</select>
     <label><input type="checkbox" id="lt-n" checked> Pular quem já tem convite em aberto</label>
-    <label>Superior imediato de todos do lote</label><select class="in" id="lt-s"><option value="">— definir depois, pessoa por pessoa —</option>${
-      (S.pessoas||[]).filter(p=>p.status==='ativo'&&LIDER.includes(p.papel)).map(l=>`<option value="${l.id}">${esc(l.nome)} (${PAPEL[l.papel]})</option>`).join('')}</select>
+    <label>Superior imediato de todos do lote</label><select class="in" id="lt-s">${opcoesSuperior(null, null, '— manter o que já está definido em cada pessoa —')}</select>
+    <label><input type="checkbox" id="lt-f"> Só quem tem celular cadastrado</label>
     <div class="expl" style="margin-top:10px">Dica: para cada pessoa já ficar ligada ao superior certo, o caminho mais simples é cada líder convidar a própria equipe pelo botão "+ Convidar pessoa" na aba Equipe. Use o lote para quem ficar de fora.</div>
     <p class="sub" id="lt-c" style="margin-top:8px"></p>
     <button class="btn p w" id="lt-ok">Gerar e baixar CSV</button><div id="lt-m"></div>`);
-  const alvo = () => sem.filter(p => (!$('lt-e').value || p.empresa===$('lt-e').value) && (!$('lt-n').checked || !p.convite_pendente));
+  const alvo = () => sem.filter(p => (!$('lt-e').value || p.empresa===$('lt-e').value) && (!$('lt-n').checked || !p.convite_pendente)
+    && (!$('lt-f').checked || foneWa(p.telefone)));
   const conta = () => $('lt-c').textContent = alvo().length + ' pessoa(s) vão receber convite. Os convites valem 30 dias.';
-  $('lt-e').onchange = conta; $('lt-n').onchange = conta; conta();
+  $('lt-e').onchange = conta; $('lt-n').onchange = conta; $('lt-f').onchange = conta; conta();
   $('lt-ok').onclick = async () => {
     const ids = alvo().map(p=>p.id); if (!ids.length) return msg('lt-m','Ninguém para convidar.');
     busy($('lt-ok'),true);
     try {
-      const r = await rpc('he_convidar', {p_token:S.token, p_pessoas:ids, p_papel:'colaborador', p_superior:$('lt-s').value || null});
-      const csv = '﻿' + [['Nome','Código de acesso','Convite','Mensagem'], ...r.map(x=>[x.nome, x.codigo, x.convite, textoConvite(x)])]
+      // cada pessoa mantém a função já definida (líder continua líder)
+      const porPapel = {};
+      for (const p of alvo()) (porPapel[p.papel && p.papel !== 'admin' ? p.papel : 'colaborador'] ||= []).push(p.id);
+      let r = [];
+      for (const [pap, lista] of Object.entries(porPapel))
+        r = r.concat(await rpc('he_convidar', {p_token:S.token, p_pessoas:lista, p_papel:pap, p_superior:$('lt-s').value || null}));
+      const tel = id => { const p = (S.pessoas||[]).find(x=>x.id===id); return p && p.telefone || ''; };
+      const csv = '﻿' + [['Nome','Celular','Código de acesso','Convite','Link WhatsApp','Mensagem'], ...r.map(x=>[x.nome, tel(x.pessoa_id), x.codigo, x.convite, linkWa(x), textoConvite(x)])]
         .map(l => l.map(v => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\r\n');
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
       a.download = `convites_horas_i9_${new Date().toISOString().slice(0,10)}.csv`; a.click();
-      msg('lt-m', r.length + ' convites gerados. Guarde o arquivo com cuidado: cada convite dá acesso a uma pessoa.', true);
-      S.pessoas = null;
+      mostrarConvites(r); S.pessoas = null;
     } catch(e){ msg('lt-m', e.message); busy($('lt-ok'),false); }
   };
 }
