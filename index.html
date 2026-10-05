@@ -84,6 +84,24 @@ label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin:10px
 /* listas */
 .day{display:flex;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);align-items:flex-start}
 .day:last-child{border-bottom:0}
+.day.warn{background:#FFF8E6;margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:8px}
+.tag.t-sa{background:#E7EEFA;color:#1D4E89}
+.tag.t-inc{background:#FDEBC8;color:#8A5300}
+.sa-wrap{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:8px}
+.sa-t{border-collapse:separate;border-spacing:0;font-size:12px;width:auto}
+.sa-t th,.sa-t td{padding:0;border-bottom:1px solid var(--line);white-space:nowrap}
+.sa-t thead th{position:sticky;top:0;background:#fff;z-index:2;font-size:10px;text-align:center;padding:4px 0;color:var(--ink3)}
+.sa-t thead th.fds{background:#F4F4F4}
+.sa-t .nm{position:sticky;left:0;background:#fff;z-index:1;text-align:left;padding:6px 10px 6px 6px;min-width:220px;max-width:260px;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.sa-t thead .nm{z-index:3}
+.sa-t td.dd{width:26px;min-width:26px;height:28px;text-align:center;cursor:pointer;border-left:1px solid #F0F0F0;font-size:13px}
+.sa-t td.dd.fds{background:#FAFAFA}
+.sa-t td.dd:hover{background:#E7EEFA}
+.sa-t td.dd.on{background:#1D4E89;color:#fff}
+.sa-t td.dd.busy{opacity:.4}
+.sa-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.sa-bar .in{margin:0;width:auto;padding:8px}
+.sug{margin-top:6px;font-size:12px;background:#E7EEFA;color:#1D4E89;border-radius:8px;padding:7px 9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .day .d{width:52px;flex-shrink:0;text-align:center}
 .day .d b{display:block;font-size:18px}
 .day .d span{font-size:11px;color:var(--ink3);text-transform:uppercase}
@@ -451,6 +469,7 @@ async function iniciar(){
   S.mes = S.mes || mesAtual(); $('mes').value = S.mes;
   const tabs = [['minhas','Minhas horas']];
   if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
+  if (LIDER.includes(S.eu.papel)) tabs.push(['sa','Sobreaviso']);
   if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
   if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['cad','Cadastros']);
   S.tabs = tabs;
@@ -484,6 +503,7 @@ async function carregar(){
     else if (S.tab === 'equipe') vEquipe();
     else if (S.tab === 'rh') vRH();
     else if (S.tab === 'cad') await vCad();
+    else if (S.tab === 'sa') await vSobreaviso();
   } catch(e){ $('main').innerHTML = `<div class="card"><div class="msg e">${esc(e.message)}</div></div>`; }
 }
 $('mes').onchange = () => { S.mes = $('mes').value || mesAtual(); carregar(); };
@@ -503,6 +523,24 @@ function linhasDia(d){
   if (d.desconto && !d.abonado) it.push({t:`Horas a menos no dia (${hm(d.desconto)})`, v:-d.desconto});
   return it;
 }
+/* marcadores do dia: acionamento, descanso, sobreaviso, ponto incompleto */
+function extrasDia(d){
+  const x = [];
+  if (d.acion_min) x.push(`<span class="tag t-sa">Acionamento de sobreaviso ${esc(d.acion_txt||'')} · ${hm(d.acion_min)} de HE</span>`);
+  if (d.descanso_ate) x.push(`<span class="tag t-gray">Descanso de 11h até ${d.descanso_ate.slice(11,16)}</span>`);
+  if (d.sa_noite) x.push(`<span class="tag t-sa">🌙 Sobreaviso ${hm(d.sa_min)}</span>`);
+  if (d.incompleto) x.push(`<span class="tag t-inc">⚠ ${d.incompleto==='sem marcação'?'Sem marcação':'Ponto incompleto'}</span>`);
+  return x.join(' ');
+}
+const diaRelevante = d => linhasDia(d).length || d.autorizacao || d.sa_noite || d.incompleto || d.acion_min || d.sugestao;
+function diaHTML(d, extra){
+  const it = linhasDia(d);
+  return `<div class="day ${d.incompleto?'warn':''}"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
+    <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')}
+      <div class="x">${esc(d.batidas||'sem marcação')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100-(d.acion_min||0))>0?' <span class="tag t-no">Sem autorização</span>':''} ${extrasDia(d)}</div>
+      ${d.observacao?`<div class="x">${esc(d.observacao)}</div>`:''}${extra||''}</div>
+    <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div></div>`;
+}
 function tagAut(a){
   if (!a) return '';
   if (a.startsWith('autorizada')) return `<span class="tag t-ok">Autorizada</span>`;
@@ -517,7 +555,8 @@ async function vMinhas(){
     rpc('he_dias', {p_token:S.token, p_pessoa:S.eu.id, p_mes:mesData()}),
     rpc('he_autorizacoes', {p_token:S.token, p_escopo:'minhas', p_mes:mesData()})
   ]);
-  const ev = dias.filter(d => linhasDia(d).length || d.autorizacao);
+  const ev = dias.filter(diaRelevante);
+  const nInc = dias.filter(d => d.incompleto).length;
   const fimMes = new Date(+S.mes.slice(0,4), +S.mes.slice(5,7), 0).toLocaleDateString('pt-BR');
   $('main').innerHTML = `
     <div class="saldo">
@@ -529,6 +568,8 @@ async function vMinhas(){
       <div class="st"><div class="l">Já compensado</div><div class="v minus">${hm(eu.compensado)}</div>
         <div class="l">horas a menos no mês</div></div>
     </div>
+    ${nInc?`<div class="note">⚠ ${nInc===1?'Há 1 dia':'Há '+nInc+' dias'} com ponto incompleto neste mês. Justifique no Quark e avise seu superior: enquanto a marcação não for acertada, as horas faltantes contam como horas a menos.</div>`:''}
+    ${eu.sa_min?`<div class="note" style="background:#E7EEFA;color:#1D4E89">🌙 Sobreaviso no mês: <b>${hm(eu.sa_min)}</b> à disposição${eu.acion_min?` · ${hm(eu.acion_min)} de acionamento, já somadas às horas extras`:''}.</div>`:''}
     ${eu.saldo>0?`<div class="note">Cada hora extra vira folga com bônus: 1h vale 1h30 (dia útil), 1h45 (sábado ou após a 2ª hora) ou 2h (domingo/feriado). O que não for compensado até o fim do mês é pago.</div>`:''}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
@@ -545,12 +586,7 @@ async function vMinhas(){
     </div>
     <div class="card">
       <h2>Meus dias no ponto</h2>
-      ${ev.length?ev.map(d=>{const it=linhasDia(d);return `
-        <div class="day"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
-          <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')||'<div class="muted">Sem HE</div>'}
-            <div class="x">${esc(d.batidas||'')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100)?' <span class="tag t-no">Sem autorização</span>':''}</div></div>
-          <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div>
-        </div>`;}).join(''):'<p class="muted">Nenhuma hora extra ou compensação neste mês.</p>'}
+      ${ev.length?ev.map(d=>diaHTML(d)).join(''):'<p class="muted">Nenhuma hora extra ou compensação neste mês.</p>'}
       <p class="sub" style="margin-top:10px">Os horários vêm do ponto eletrônico. Algo errado? Fale com seu superior.</p>
     </div>`;
   $('b-sol').onclick = () => formHE(null);
@@ -590,7 +626,7 @@ function vEquipe(){
           <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.cargo?' · '+esc(r.cargo):''}${r.superior?' · '+esc(r.superior):''}</div></td>
           <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
           <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
-          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span>`:''}</td></tr>`;
+          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
   const corpo = usaFiltro()
     ? porSetor(eq).map(([k,ps]) => cabGrupo('eq:'+k, 6, k, `${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}`) + ps.map(r => linhaDoGrupo('eq:'+k, linhaEq(r))).join('')).join('')
     : eq.map(linhaEq).join('');
@@ -637,24 +673,27 @@ function vEquipe(){
 async function detalhe(p){
   modal('<div class="loading">Carregando…</div>');
   try {
-    const [dias, auts] = await Promise.all([
+    const [dias, auts, acs] = await Promise.all([
       rpc('he_dias', {p_token:S.token, p_pessoa:p.pessoa_id, p_mes:mesData()}),
-      rpc('he_autorizacoes', {p_token:S.token, p_escopo:'equipe', p_mes:mesData()})
+      rpc('he_autorizacoes', {p_token:S.token, p_escopo:'equipe', p_mes:mesData()}),
+      rpc('he_acionamentos', {p_token:S.token, p_pessoa:p.pessoa_id, p_mes:mesData()})
     ]);
     const minhas = auts.filter(a => a.pessoa_id === p.pessoa_id);
     const podeAut = LIDER.includes(S.eu.papel);
-    const ev = dias.filter(d => linhasDia(d).length || d.autorizacao || /interst/i.test(d.observacao||''));
+    const ev = dias.filter(d => diaRelevante(d) || /interst/i.test(d.observacao||''));
+    const fmtDH = t => t.slice(8,10)+'/'+t.slice(5,7)+' '+t.slice(11,16);
     modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
       <p class="sub">Saldo de folga: <b>${hm(p.saldo)}</b> · gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)}</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
-        ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button>':''}
+        ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button><button class="btn s" id="b-acn">+ Acionamento de sobreaviso</button>':''}
         <button class="btn s" id="b-imp">Imprimir relatório do mês</button></div>
       <h3 style="margin-top:10px">Dias com HE ou compensação</h3>
-      ${ev.map(d=>{const it=linhasDia(d);return `<div class="day"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
-        <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')}
-          <div class="x">${esc(d.batidas||'')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100)?' <span class="tag t-no">Sem autorização</span>':''}</div>
-          ${d.observacao?`<div class="x">${esc(d.observacao)}</div>`:''}</div>
-        <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div></div>`;}).join('')||'<p class="muted">Nada neste mês.</p>'}
+      ${ev.map(d=>diaHTML(d, d.sugestao&&podeAut?`<div class="sug">🌙 Batida na noite de sobreaviso (${fmtDH(d.sugestao.split('|')[0])} a ${fmtDH(d.sugestao.split('|')[1])}). Foi acionamento?
+          <button class="btn s" data-sug="${d.data}|${d.sugestao}">Registrar acionamento</button></div>`:'')).join('')||'<p class="muted">Nada neste mês.</p>'}
+      ${acs.length?`<h3 style="margin-top:14px">Acionamentos de sobreaviso</h3>${acs.map(a=>`<div class="pend"><b>${fmtDH(a.inicio)} → ${fmtDH(a.fim)}</b>
+        <span class="tag t-sa">noite de ${a.data.split('-').reverse().slice(0,2).join('/')}</span>
+        <div class="sub">${esc(a.motivo||'sem motivo informado')}${a.registrado_por?' · registrado por '+esc(a.registrado_por):''}</div>
+        ${podeAut?`<div class="a"><button class="btn no s" data-acx="${a.id}">Excluir</button></div>`:''}</div>`).join('')}`:''}
       <h3 style="margin-top:14px">Autorizações do mês</h3>
       ${minhas.map(a=>`<div class="pend"><b>${a.data.split('-').reverse().slice(0,2).join('/')} · ${a.inicio.slice(0,5)}–${a.fim.slice(0,5)}</b>
         <span class="tag ${a.status==='autorizada'?'t-ok':a.status==='negada'?'t-no':a.status==='solicitada'?'t-wait':'t-gray'}">${a.status}</span>
@@ -664,7 +703,16 @@ async function detalhe(p){
           <button class="btn s" data-imps="${a.id}">Salvar</button></div>`:(a.impacto?`<div class="sub">Impacto: ${esc(a.impacto)}</div>`:'')}
       </div>`).join('')||'<p class="muted">Nenhuma neste mês.</p>'}
       <div id="d-m"></div>`);
-    if (podeAut) $('b-aut').onclick = () => formHE(p);
+    if (podeAut) {
+      $('b-aut').onclick = () => formHE(p);
+      $('b-acn').onclick = () => formAcion(p);
+      document.querySelectorAll('[data-sug]').forEach(b => b.onclick = () => {
+        const [noite, ini, fim] = b.dataset.sug.split('|'); formAcion(p, {noite, ini, fim}); });
+      document.querySelectorAll('[data-acx]').forEach(b => b.onclick = async () => {
+        if (!confirm('Excluir este acionamento? As horas voltam a ser calculadas como no ponto.')) return;
+        try { await rpc('he_acionamento_excluir', {p_token:S.token, p_id:+b.dataset.acx}); carregar().then(()=>detalhe(p)); }
+        catch(e){ msg('d-m', e.message); } });
+    }
     $('b-imp').onclick = () => imprimir(p, dias, minhas);
     document.querySelectorAll('[data-imps]').forEach(b => b.onclick = async () => {
       const id = b.dataset.imps, v = document.querySelector(`[data-imp="${id}"]`).value;
@@ -674,19 +722,49 @@ async function detalhe(p){
   } catch(e){ modal(`<div class="msg e">${esc(e.message)}</div>`); }
 }
 
+/* ── acionamento de sobreaviso (líder) ── */
+function formAcion(p, pre){
+  pre = pre || {};
+  const ontem = new Date(Date.now()-864e5).toISOString().slice(0,10);
+  const noite = pre.noite || ontem;
+  const prox = d => new Date(new Date(d+'T12:00').getTime()+864e5).toISOString().slice(0,10);
+  modal(`<div class="md-h"><h2 style="margin:0">Acionamento de sobreaviso</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">${esc(p.nome)}</p>
+    <div class="expl">O tempo do acionamento vira hora extra do dia da escala (somando às HE daquele dia) e para de contar como sobreaviso. No dia seguinte, a jornada fica abonada até 11h depois do fim do acionamento.</div>
+    <label for="ac-noite">Noite de sobreaviso (dia da escala)</label><input class="in" type="date" id="ac-noite" value="${noite}">
+    <div class="row"><div><label for="ac-ini">Início</label><input class="in" type="datetime-local" id="ac-ini" value="${pre.ini || prox(noite)+'T00:00'}"></div>
+      <div><label for="ac-fim">Fim</label><input class="in" type="datetime-local" id="ac-fim" value="${pre.fim || prox(noite)+'T02:00'}"></div></div>
+    <label for="ac-mot">Motivo</label><textarea class="in" id="ac-mot" rows="2" placeholder="Ex.: falha na bomba 2 da EE Carapina, OS 4560795"></textarea>
+    <button class="btn p w" id="ac-ok">Registrar acionamento</button><div id="ac-m"></div>`);
+  $('ac-ok').onclick = async () => {
+    const ini = $('ac-ini').value, fim = $('ac-fim').value;
+    if (!$('ac-noite').value || !ini || !fim) return msg('ac-m','Preencha a noite, o início e o fim.');
+    busy($('ac-ok'), true);
+    try {
+      await rpc('he_acionamento_registrar', {p_token:S.token, p_pessoa:p.pessoa_id, p_noite:$('ac-noite').value,
+        p_inicio:ini.replace('T',' '), p_fim:fim.replace('T',' '), p_motivo:$('ac-mot').value.trim()});
+      await carregar(); detalhe((S.resumo.find(r=>r.pessoa_id===p.pessoa_id))||p);
+    } catch(e){ msg('ac-m', e.message); busy($('ac-ok'), false); }
+  };
+}
+
 /* ── relatório individual para impressão / PDF ──
    Valores em R$ só aparecem quando o banco devolve hora_base (RH e administrador). */
 function imprimir(p, dias, auts){
   let mesTxt = new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
   mesTxt = mesTxt.charAt(0).toUpperCase() + mesTxt.slice(1);
   const dt = s => s.split('-').reverse().join('/');
-  const ev = dias.filter(d => d.he50||d.he75||d.he100||d.noturna||d.hn||(d.desconto&&!d.abonado));
+  const ev = dias.filter(d => d.he50||d.he75||d.he100||d.noturna||d.hn||(d.desconto&&!d.abonado)||d.sa_noite);
+  const obsDia = d => [d.acion_min?`Acionamento de sobreaviso ${d.acion_txt} (${hm(d.acion_min)} de HE)`:'',
+    d.sa_noite?`Sobreaviso ${hm(d.sa_min)}`:'', d.descanso_ate?`Descanso de 11h até ${d.descanso_ate.slice(11,16)}`:'', d.observacao||'']
+    .filter(Boolean).join(' · ');
+  const sa = p.sa_min || 0;
   const hb = p.hora_base != null ? +p.hora_base : null;
   const not = (p.noturna||0) + (p.hn||0);
   let fin = '';
   if (hb) {
     const r = rubricas(p, S.ordem);
-    const v = {he50:r.he50/60*hb*1.5, he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2};
+    const v = {he50:r.he50/60*hb*1.5, he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2, sa:sa/60*hb/3};
     const nomeOrd = {'50_primeiro':'abater primeiro as de 50%','100_primeiro':'abater primeiro as de 100%','proporcional':'abatimento proporcional'}[S.ordem];
     fin = `<h3>Valores a pagar em folha (hora base ${brl(hb)})</h3>
       <table><thead><tr><th class="l">Rubrica</th><th>Horas</th><th>Fator</th><th>Valor</th></tr></thead><tbody>
@@ -694,7 +772,8 @@ function imprimir(p, dias, auts){
       <tr><td class="l">Horas extras 75% não compensadas</td><td>${hm(r.he75)}</td><td>1,75</td><td>${brl(v.he75)}</td></tr>
       <tr><td class="l">Horas extras 100% não compensadas</td><td>${hm(r.he100)}</td><td>2,00</td><td>${brl(v.he100)}</td></tr>
       <tr><td class="l">Adicional noturno</td><td>${hm(not)}</td><td>0,20</td><td>${brl(v.not)}</td></tr>
-      <tr><th class="l">Total a pagar</th><th></th><th></th><th>${brl(v.he50+v.he75+v.he100+v.not)}</th></tr>
+      ${sa?`<tr><td class="l">Sobreaviso</td><td>${hm(sa)}</td><td>1/3</td><td>${brl(v.sa)}</td></tr>`:''}
+      <tr><th class="l">Total a pagar</th><th></th><th></th><th>${brl(v.he50+v.he75+v.he100+v.not+v.sa)}</th></tr>
       </tbody></table>
       <p class="nota">Critério de compensação: ${nomeOrd}.</p>`;
   }
@@ -707,9 +786,10 @@ function imprimir(p, dias, auts){
       <div><b>Empresa:</b> ${esc(p.empresa||'—')}</div><div><b>Superior imediato:</b> ${esc(p.superior||'—')}</div>
     </div>
     <h3>Resumo da competência</h3>
-    <table><thead><tr><th>Horas extras 50%</th><th>Horas extras 75%</th><th>Horas extras 100%</th><th>Crédito de folga</th><th>Folga compensada</th><th>Saldo pago em folha</th><th>Adicional noturno (horas)</th></tr></thead>
+    <table><thead><tr><th>Horas extras 50%</th><th>Horas extras 75%</th><th>Horas extras 100%</th><th>Crédito de folga</th><th>Folga compensada</th><th>Saldo pago em folha</th><th>Adicional noturno (horas)</th>${sa?'<th>Sobreaviso (horas)</th>':''}</tr></thead>
       <tbody><tr><td>${hm(p.he50)}</td><td>${hm(p.he75)}</td><td>${hm(p.he100)}</td><td>${hm(p.normalizado)}</td>
-        <td>${hm(p.compensado)}</td><td><b>${hm(p.saldo)}</b></td><td>${hm(not)}</td></tr></tbody></table>
+        <td>${hm(p.compensado)}</td><td><b>${hm(p.saldo)}</b></td><td>${hm(not)}</td>${sa?`<td>${hm(sa)}</td>`:''}</tr></tbody></table>
+    ${p.acion_min?`<p class="nota">Das horas extras, ${hm(p.acion_min)} foram de acionamento durante o sobreaviso.</p>`:''}
     <p class="nota">Cada hora extra gera crédito de folga já com o adicional legal: 1h a 50% = 1h30, a 75% = 1h45, a 100% = 2h.
       As folgas e ausências do mês são abatidas desse crédito. O crédito não compensado até o fim da competência é pago em folha,
       com os adicionais, e não é transferido para o mês seguinte.</p>
@@ -719,7 +799,7 @@ function imprimir(p, dias, auts){
       ${ev.map(d=>`<tr><td class="l">${dt(d.data)} ${DIA[new Date(d.data+'T12:00').getDay()]}</td><td class="l">${esc(d.batidas||'')}</td>
         <td>${d.he50?hm(d.he50):''}</td><td>${d.he75?hm(d.he75):''}</td><td>${d.he100?hm(d.he100):''}</td>
         <td>${(d.noturna+d.hn)?hm(d.noturna+d.hn):''}</td><td>${d.desconto&&!d.abonado?hm(d.desconto):''}</td>
-        <td class="l">${esc(d.observacao||'')}</td></tr>`).join('')}
+        <td class="l">${esc(obsDia(d))}</td></tr>`).join('')}
     </tbody></table>`:'<p>Nenhuma hora extra ou compensação na competência.</p>'}
     ${auts.filter(a=>a.status==='autorizada').length?`<h3>Horas extras autorizadas</h3>
     <table><thead><tr><th class="l">Data</th><th class="l">Horário</th><th class="l">Motivo</th><th class="l">Autorizado por</th></tr></thead><tbody>
@@ -736,6 +816,76 @@ function imprimir(p, dias, auts){
   const limpar = () => { $('print').innerHTML = ''; document.title = tituloAntigo; window.removeEventListener('afterprint', limpar); };
   window.addEventListener('afterprint', limpar);
   setTimeout(() => window.print(), 50);
+}
+
+/* ════ ESCALA DE SOBREAVISO ════ */
+async function vSobreaviso(){
+  const marc = await rpc('he_sobreaviso_mes', {p_token:S.token, p_mes:mesData()});
+  const on = new Set(marc.map(e => e.pessoa_id + '|' + e.data));
+  const [ano, mes] = S.mes.split('-').map(Number), nd = new Date(ano, mes, 0).getDate();
+  const dia = i => `${S.mes}-${String(i).padStart(2,'0')}`;
+  const dow = i => new Date(ano, mes-1, i).getDay();
+  const base = S.resumo;
+  const comEscala = new Set(marc.map(e => e.pessoa_id));
+  let lista = filtrar(base).filter(p => S.eu.papel === 'admin' || p.pessoa_id !== S.eu.id);  // a própria escala é marcada pelo superior
+  if (S.saSo) lista = lista.filter(p => comEscala.has(p.pessoa_id));
+  lista = [...lista].sort((a,b) => (comEscala.has(b.pessoa_id) - comEscala.has(a.pessoa_id)) || a.nome.localeCompare(b.nome));
+  const noites = p => { let n = 0; for (let i=1;i<=nd;i++) if (on.has(p.pessoa_id+'|'+dia(i))) n++; return n; };
+  $('main').innerHTML = `
+    ${barraFiltro(base)}
+    <div class="card"><h2>Escala de sobreaviso</h2>
+      <div class="expl">Marque as <b>noites</b> em que cada pessoa fica de sobreaviso. A noite de um dia vai das 17:30 até as 07:30 do dia seguinte
+        (ex.: marcar a segunda cobre de segunda 17:30 a terça 07:30). Fora do trabalho, essas horas valem 1/3 da hora base.
+        Quando houver batida dentro da noite, o app sugere registrar o <b>acionamento</b> no detalhe da pessoa (aba Equipe).</div>
+      <div class="sa-bar">
+        <input class="in" id="sa-q" placeholder="Buscar nome" style="flex:1 1 180px">
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px;margin:0"><input type="checkbox" id="sa-so" ${S.saSo?'checked':''}> Só quem tem escala no mês</label>
+      </div>
+      <div class="sa-bar" id="sa-lote">
+        <b id="sa-n" style="font-size:13px">Marque pessoas na lista para aplicar um período</b>
+        <span style="font-size:13px">de</span><input class="in" type="date" id="sa-de" value="${dia(1)}">
+        <span style="font-size:13px">até</span><input class="in" type="date" id="sa-ate" value="${dia(Math.min(5,nd))}">
+        <button class="btn p s" id="sa-mk" disabled>Marcar noites</button><button class="btn s" id="sa-dm" disabled>Desmarcar</button>
+      </div>
+      <div class="sa-wrap"><table class="sa-t">
+        <thead><tr><th class="nm"><input type="checkbox" id="sa-all" title="Selecionar todos da lista"> Nome</th>
+          ${Array.from({length:nd},(_,k)=>k+1).map(i=>`<th class="${[0,6].includes(dow(i))?'fds':''}">${i}<br>${DIA[dow(i)][0].toUpperCase()}</th>`).join('')}</tr></thead>
+        <tbody>${lista.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}"><td class="nm"><input type="checkbox" class="sa-sel" value="${p.pessoa_id}"> ${esc(p.nome)}
+            <span class="sub" data-cnt="${p.pessoa_id}">${noites(p)?'· '+noites(p)+(noites(p)>1?' noites':' noite'):''}</span></td>
+          ${Array.from({length:nd},(_,k)=>k+1).map(i=>{const k=p.pessoa_id+'|'+dia(i);return `<td class="dd ${on.has(k)?'on':''} ${[0,6].includes(dow(i))?'fds':''}" data-k="${k}" title="${esc(p.nome)} · noite de ${i}/${mes}">${on.has(k)?'🌙':''}</td>`;}).join('')}</tr>`).join('')
+          || `<tr><td class="nm muted" style="padding:12px">Ninguém na lista.</td></tr>`}</tbody></table></div>
+      <div id="sa-m"></div>
+    </div>`;
+  ligarFiltro(vSobreaviso);
+  $('sa-so').onchange = () => { S.saSo = $('sa-so').checked; vSobreaviso(); };
+  $('sa-q').oninput = () => { const q = $('sa-q').value.toLowerCase();
+    document.querySelectorAll('.sa-t tbody tr[data-n]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
+  const sel = () => [...document.querySelectorAll('.sa-sel:checked')].map(i => i.value);
+  const atualiza = () => { const n = sel().length;
+    $('sa-n').textContent = n ? n + (n===1?' pessoa selecionada':' pessoas selecionadas') : 'Marque pessoas na lista para aplicar um período';
+    $('sa-mk').disabled = $('sa-dm').disabled = !n; };
+  document.querySelectorAll('.sa-sel').forEach(i => i.onchange = atualiza);
+  $('sa-all').onchange = () => { document.querySelectorAll('.sa-t tbody tr[data-n]').forEach(tr => {
+    if (tr.style.display !== 'none') tr.querySelector('.sa-sel').checked = $('sa-all').checked; }); atualiza(); };
+  const lote = async marcar => {
+    const ids = sel(), de = $('sa-de').value, ate = $('sa-ate').value;
+    if (!de || !ate || ate < de) return msg('sa-m', 'Confira o período.');
+    try { await rpc('he_sobreaviso_marcar', {p_token:S.token, p_pessoas:ids, p_de:de, p_ate:ate, p_marcar:marcar}); await carregar(); }
+    catch(e){ msg('sa-m', e.message); }
+  };
+  $('sa-mk').onclick = () => lote(true); $('sa-dm').onclick = () => lote(false);
+  document.querySelectorAll('td.dd').forEach(td => td.onclick = async () => {
+    const [pid, d] = td.dataset.k.split('|'), marcar = !td.classList.contains('on');
+    td.classList.add('busy');
+    try {
+      await rpc('he_sobreaviso_marcar', {p_token:S.token, p_pessoas:[pid], p_de:d, p_ate:d, p_marcar:marcar});
+      td.classList.toggle('on', marcar); td.textContent = marcar ? '🌙' : '';
+      marcar ? on.add(td.dataset.k) : on.delete(td.dataset.k);
+      const n = [...on].filter(k => k.startsWith(pid+'|') && k.slice(37,44) === S.mes).length;
+      document.querySelector(`[data-cnt="${pid}"]`).textContent = n ? '· '+n+(n>1?' noites':' noite') : '';
+    } catch(e){ msg('sa-m', e.message); }
+    td.classList.remove('busy');
+  });
 }
 
 /* ════ FECHAMENTO RH ════ */
@@ -760,26 +910,27 @@ function rubricas(r, ordem){
   return out;
 }
 function vRH(){
-  const base = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0);
+  const base = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0 || r.sa_min > 0);
   const rows = filtrar(base);
   const calc = rows.map(r => {
     const p = rubricas(r, S.ordem), hb = r.hora_base;
     const not = (r.noturna + r.hn);
     const val = hb ? {
-      he50: p.he50/60*hb*1.5, he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2
+      he50: p.he50/60*hb*1.5, he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2,
+      sa: (r.sa_min||0)/60*hb/3
     } : null;
-    return {...r, p, not, val, total: val ? val.he50+val.he75+val.he100+val.not : null};
+    return {...r, p, not, val, total: val ? val.he50+val.he75+val.he100+val.not+val.sa : null};
   });
   const sum = (f) => calc.reduce((s,c)=>s+(f(c)||0),0);
   const semHB = calc.filter(c => !c.hora_base).length;
   const op = (k,t,d) => `<label class="opt ${S.ordem===k?'on':''}"><input type="radio" name="ord" value="${k}" ${S.ordem===k?'checked':''}><div><b>${t}</b><span>${d}</span></div></label>`;
   const linhaRH = c => `<tr class="click" data-r="${calc.indexOf(c)}">
           <td class="l">${esc(c.nome)}<div class="sub">${esc(c.cargo||c.empresa||'')}</div></td>
-          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
-          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td>
+          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}${c.acion_min?`<div class="sub">acion. ${hm(c.acion_min)}</div>`:''}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
+          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td><td data-l="Sobreaviso">${c.sa_min?hm(c.sa_min):'—'}</td>
           <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b><div class="sub">${c.hora_base?'hora '+brl(+c.hora_base):'<span class="tag t-wait">cadastrar hora base</span>'}</div></td></tr>`;
   const corpoRH = usaFiltro()
-    ? porSetor(calc).map(([k,cs]) => cabGrupo('rh:'+k, 11, k, `${cs.length} pessoas · saldo ${hm(cs.reduce((s,c)=>s+c.saldo,0))} · ${brl(cs.reduce((s,c)=>s+(c.total||0),0))}`) + cs.map(c => linhaDoGrupo('rh:'+k, linhaRH(c))).join('')).join('')
+    ? porSetor(calc).map(([k,cs]) => cabGrupo('rh:'+k, 12, k, `${cs.length} pessoas · saldo ${hm(cs.reduce((s,c)=>s+c.saldo,0))} · ${brl(cs.reduce((s,c)=>s+(c.total||0),0))}`) + cs.map(c => linhaDoGrupo('rh:'+k, linhaRH(c))).join('')).join('')
     : calc.map(linhaRH).join('');
   $('main').innerHTML = `
     ${barraFiltro(base)}
@@ -797,7 +948,7 @@ function vRH(){
       <div class="st"><div class="l">Folga gerada (com fator)</div><div class="v">${hm(sum(c=>c.normalizado))}</div></div>
       <div class="st"><div class="l">Compensado</div><div class="v minus">${hm(sum(c=>c.compensado))}</div></div>
       <div class="st"><div class="l">Saldo a pagar (h normais)</div><div class="v plus">${hm(sum(c=>c.saldo))}</div></div>
-      <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':'HE + adicional noturno'}</div></div>
+      <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':'HE + adicional noturno + sobreaviso'}</div></div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <h2 style="margin:0">Fechamento de ${new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}${usaFiltro()&&S.f.g!=='TODOS'?' · '+S.f.g+(S.f.g==='I9 MATRIZ'&&S.f.eng?' · Engenharia':''):''}</h2>
@@ -805,15 +956,16 @@ function vRH(){
       ${botoesGrupo('gr')}
       <div class="tw"><table class="resp cmp">
         <thead><tr><th class="l">Nome</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Folga gerada</th><th>Compen&shy;sado</th>
-          <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Total R$</th></tr></thead>
+          <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Sobre&shy;aviso</th><th>Total R$</th></tr></thead>
         <tbody>${corpoRH}</tbody>
         <tfoot><tr><td class="l">Total</td><td>${hm(sum(c=>c.he50))}</td><td>${hm(sum(c=>c.he75))}</td><td>${hm(sum(c=>c.he100))}</td>
           <td>${hm(sum(c=>c.normalizado))}</td><td>${hm(sum(c=>c.compensado))}</td>
-          <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td>
+          <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td><td>${hm(sum(c=>c.sa_min||0))}</td>
           <td>${brl(sum(c=>c.total))}</td></tr></tfoot>
       </table></div>
       <p class="sub" style="margin-top:8px">Clique em uma pessoa para ver os dias e imprimir o relatório individual.
         Para imprimir o de quem não aparece aqui, use a aba ${S.eu.papel==='rh'?'Pessoas':'Equipe'}.</p>
+      <p class="sub" style="margin-top:4px">Sobreaviso = horas da noite de escala sem trabalho, pagas a 1/3 da hora base. As horas de acionamento já estão nas colunas de HE ("acion." mostra quanto da folga gerada veio delas; o CSV traz o detalhe por faixa).</p>
       <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
     </div>`;
   document.querySelectorAll('tr[data-r]').forEach(tr => tr.onclick = () => detalhe(calc[+tr.dataset.r]));
@@ -825,11 +977,13 @@ function vRH(){
   });
   $('b-csv').onclick = () => {
     const h = ['Nome','Empresa','Grupo','Setor','HE50 (h)','HE75 (h)','HE100 (h)','Gerado (h normais)','Compensado (h normais)',
-      'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Hora base','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Total'];
+      'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Acionamento HE50 (h)','Acionamento HE75 (h)','Acionamento HE100 (h)','Acionamento noturno (h)',
+      'Sobreaviso (h)','Hora base','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Valor sobreaviso (1/3)','Total'];
     const n = v => (v/60).toFixed(2).replace('.',','), r2 = v => v==null?'':v.toFixed(2).replace('.',',');
     const L = calc.map(c => [c.nome, c.empresa||'', grupo(c.empresa), c.setor||'', n(c.he50), n(c.he75), n(c.he100), n(c.normalizado), n(c.compensado),
-      n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), c.hora_base?r2(+c.hora_base):'',
-      r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.total)]);
+      n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), n(c.acion_he50||0), n(c.acion_he75||0), n(c.acion_he100||0), n(c.acion_not||0),
+      n(c.sa_min||0), c.hora_base?r2(+c.hora_base):'',
+      r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.val?.sa), r2(c.total)]);
     const csv = '﻿' + [h, ...L].map(l => l.map(x => `"${String(x).replace(/"/g,'""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
