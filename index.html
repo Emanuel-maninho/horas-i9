@@ -124,7 +124,19 @@ label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin:10px
 .day .d span{font-size:11px;color:var(--ink3);text-transform:uppercase}
 .day .c{flex:1;min-width:0;font-size:14px}
 .day .c .x{font-size:12px;color:var(--ink3)}
-.day .h{font-weight:700;white-space:nowrap}
+.day .h{font-weight:700;white-space:nowrap;width:72px;text-align:right;flex-shrink:0}
+.day .hs{white-space:nowrap;width:72px;text-align:right;flex-shrink:0;color:var(--ink2);font-weight:600}
+.day-cab{display:flex;gap:12px;padding:0 0 4px;border-bottom:1px solid var(--line);font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.3px}
+.day-cab span{width:72px;text-align:right;white-space:nowrap;flex-shrink:0}.day-cab span:first-child{flex:1;text-align:left}
+.tag.t-aud{background:#EFE3FA;color:#5B2A86}
+.selbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.selbar select{margin:0;width:auto;flex:0 1 260px;padding:8px}
+.selbar .info{font-size:13px;color:var(--ink2)}
+.selbar .info b{color:var(--ink)}
+td.ck,th.ck{width:34px;text-align:center!important;padding-left:4px!important;padding-right:4px!important}
+td.ck input,th.ck input{width:18px;height:18px;cursor:pointer;accent-color:var(--red)}
+tr.sel td{background:#FFF6F6}
+@media(max-width:640px){table.resp td.ck{display:block;float:right;width:auto;padding:0}}
 .plus{color:var(--red)}.minus{color:var(--ok)}
 .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;vertical-align:1px}
 .t-ok{background:var(--ok-l);color:var(--ok)}
@@ -409,7 +421,8 @@ function msg(el, text, ok) { $(el).innerHTML = text ? `<div class="msg ${ok?'o':
 function busy(btn, on) { btn.disabled = on; }
 
 /* ════ estado ════ */
-const S = { token:null, eu:null, mes:null, tab:null, resumo:[], pend:[], ordem:'50_primeiro' };
+const S = { token:null, eu:null, mes:null, tab:null, resumo:[], pend:[], ordem:'50_primeiro',
+  sel:new Set(), grupoId:null, soSel:false, grupos:null, busca:'' };
 
 function mesAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function mesData(){ return S.mes + '-01'; }
@@ -512,6 +525,7 @@ async function carregar(){
       LIDER.includes(S.eu.papel) ? rpc('he_autorizacoes', {p_token:S.token, p_escopo:'pendentes', p_mes:mesData()}) : []
     ]);
     S.resumo = res; S.pend = pend;
+    if (S.tab === 'equipe') S.grupos = await rpc('he_grupos', {p_token:S.token}).catch(() => null);  // null = banco ainda sem o 09
     if (S.eu.papel === 'admin') {
       const ps = await rpc('he_admin_pessoas', {p_token:S.token}); S.pessoas = ps;
       S.nPendCad = ps.filter(p=>p.status==='pendente').length;
@@ -537,9 +551,9 @@ $('b-sair').onclick = () => sair(false);
 function linhasDia(d){
   const it = [];
   const f50 = d.he50*1.5, f75 = d.he75*1.75, f100 = d.he100*2;
-  if (d.he50)  it.push({t:`Hora extra ${hm(d.he50)} (dia útil, 1ª e 2ª hora)`, v:f50});
-  if (d.he75)  it.push({t:`Hora extra ${hm(d.he75)} (${new Date(d.data+'T12:00').getDay()===6?'sábado':'após a 2ª hora'})`, v:f75});
-  if (d.he100) it.push({t:`Hora extra ${hm(d.he100)} (domingo/feriado)`, v:f100});
+  if (d.he50)  it.push({t:`Hora extra ${hm(d.he50)} (dia útil, 1ª e 2ª hora)`, v:f50, r:d.he50});
+  if (d.he75)  it.push({t:`Hora extra ${hm(d.he75)} (${new Date(d.data+'T12:00').getDay()===6?'sábado':'após a 2ª hora'})`, v:f75, r:d.he75});
+  if (d.he100) it.push({t:`Hora extra ${hm(d.he100)} (domingo/feriado)`, v:f100, r:d.he100});
   if (d.desconto && !d.abonado) it.push({t:`Horas a menos no dia (${hm(d.desconto)})`, v:-d.desconto});
   return it;
 }
@@ -550,15 +564,18 @@ function extrasDia(d){
   if (d.descanso_ate) x.push(`<span class="tag t-gray">Descanso de 11h até ${d.descanso_ate.slice(11,16)}</span>`);
   if (d.sa_noite) x.push(`<span class="tag t-sa">🌙 Sobreaviso ${hm(d.sa_min)}</span>`);
   if (d.incompleto) x.push(`<span class="tag t-inc">⚠ ${d.incompleto==='sem marcação'?'Sem marcação':'Ponto incompleto'}</span>`);
+  if (d.aud_tol) x.push(`<span class="tag t-aud" title="Marcações dentro da tolerância do RH (até 5 min por marcação, 10 min no dia, almoço cumprido), mas o Quark apontou ${hm(d.aud_tol)} de HE.">⚠ Auditar Quark – erro de tolerância</span>`);
   return x.join(' ');
 }
 const diaRelevante = d => linhasDia(d).length || d.autorizacao || d.sa_noite || d.incompleto || d.acion_min || d.sugestao;
+const cabDias = () => '<div class="day-cab"><span>Dia</span><span>HE feita</span><span>Vira folga</span></div>';
 function diaHTML(d, extra){
   const it = linhasDia(d);
   return `<div class="day ${d.incompleto?'warn':''}"><div class="d"><b>${d.data.slice(8)}</b><span>${DIA[new Date(d.data+'T12:00').getDay()]}</span></div>
     <div class="c">${it.map(i=>`<div>${esc(i.t)}</div>`).join('')}
-      <div class="x">${esc(d.batidas||'sem marcação')} ${tagAut(d.autorizacao)}${!d.autorizacao&&(d.he50+d.he75+d.he100-(d.acion_min||0))>0?' <span class="tag t-no">Sem autorização</span>':''} ${extrasDia(d)}</div>
+      <div class="x">${esc(d.batidas||'sem marcação')} ${tagAut(d.autorizacao)}${!d.autorizacao&&!d.aud_tol&&(d.he50+d.he75+d.he100-(d.acion_min||0))>0?' <span class="tag t-no">Sem autorização</span>':''} ${extrasDia(d)}</div>
       ${d.observacao?`<div class="x">${esc(d.observacao)}</div>`:''}${extra||''}</div>
+    <div class="hs">${it.map(i=>`<div>${i.r?hm(i.r):'&nbsp;'}</div>`).join('')}</div>
     <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div></div>`;
 }
 function tagAut(a){
@@ -606,7 +623,7 @@ async function vMinhas(){
     </div>
     <div class="card">
       <h2>Meus dias no ponto</h2>
-      ${ev.length?ev.map(d=>diaHTML(d)).join(''):'<p class="muted">Nenhuma hora extra ou compensação neste mês.</p>'}
+      ${ev.length?cabDias()+ev.map(d=>diaHTML(d)).join(''):'<p class="muted">Nenhuma hora extra ou compensação neste mês.</p>'}
       <p class="sub" style="margin-top:10px">Os horários vêm do ponto eletrônico. Algo errado? Fale com seu superior.</p>
     </div>`;
   $('b-sol').onclick = () => formHE(null);
@@ -639,20 +656,39 @@ function formHE(pessoa){
 }
 
 /* ════ EQUIPE ════ */
+const mesmoConj = (a, b) => a.size === b.size && [...a].every(x => b.has(x));
 function vEquipe(){
   const base = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
   const eq = filtrar(base);
-  const linhaEq = r => `<tr class="click" data-i="${eq.indexOf(r)}" data-n="${esc(r.nome.toLowerCase())}">
+  const naSel = r => S.sel.has(r.pessoa_id);
+  const selEq = eq.filter(naSel);
+  const alvo = selEq.length ? selEq : eq;                       // indicadores: seleção ou equipe toda
+  const lista = S.soSel && selEq.length ? selEq : eq;           // tabela
+  const g = (S.grupos||[]).find(x => x.id === S.grupoId) || null;
+  if (!g) S.grupoId = null;
+  const alterado = g && !mesmoConj(new Set(g.pessoas), S.sel);
+  const linhaEq = r => `<tr class="click ${naSel(r)?'sel':''}" data-i="${eq.indexOf(r)}" data-n="${esc(r.nome.toLowerCase())}">
+          <td class="ck"><input type="checkbox" data-ck="${r.pessoa_id}" ${naSel(r)?'checked':''} aria-label="Selecionar ${esc(r.nome)}"></td>
           <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.cargo?' · '+esc(r.cargo):''}${r.superior?' · '+esc(r.superior):''}</div></td>
           <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
           <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
-          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
+          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.aud_dias?`<span class="tag t-aud">${r.aud_dias} auditar Quark</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
   const corpo = usaFiltro()
-    ? porSetor(eq).map(([k,ps]) => cabGrupo('eq:'+k, 6, k, `${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}`) + ps.map(r => linhaDoGrupo('eq:'+k, linhaEq(r))).join('')).join('')
-    : eq.map(linhaEq).join('');
-  const comHE = eq.filter(r => r.normalizado > 0 || r.compensado > 0);
-  const tot = k => eq.reduce((s,r)=>s+(r[k]||0),0);
-  const semAut = eq.reduce((s,r)=>s+r.dias_sem_aut,0);
+    ? porSetor(lista).map(([k,ps]) => cabGrupo('eq:'+k, 7, k, `${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}`) + ps.map(r => linhaDoGrupo('eq:'+k, linhaEq(r))).join('')).join('')
+    : lista.map(linhaEq).join('');
+  const tot = k => alvo.reduce((s,r)=>s+(r[k]||0),0);
+  const heFeitas = alvo.reduce((s,r)=>s+r.he50+r.he75+r.he100,0);
+  const semAut = tot('dias_sem_aut'), aud = tot('aud_dias');
+  const selbar = `<div class="selbar">
+      ${S.grupos && S.grupos.length?`<select class="in" id="g-sel" aria-label="Grupo"><option value="">${S.eu.papel==='rh'?'Todas as pessoas':'Toda a equipe'}</option>
+        ${S.grupos.map(x=>`<option value="${x.id}" ${x.id===S.grupoId?'selected':''}>${esc(x.nome)} (${x.pessoas.length})</option>`).join('')}</select>`:''}
+      ${selEq.length?`<span class="info">Indicadores de <b>${selEq.length}</b> de ${eq.length} pessoas${g?` · grupo <b>${esc(g.nome)}</b>${alterado?' (alterado)':''}`:''}</span>
+        <label class="info" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="g-so" ${S.soSel?'checked':''}> só os selecionados na tabela</label>
+        ${S.grupos?(g?`${alterado?'<button class="btn p s" id="g-upd">Salvar alterações no grupo</button>':''}<button class="btn s" id="g-ren">Renomear</button><button class="btn s" id="g-new">Salvar como novo grupo</button><button class="btn no s" id="g-del">Excluir grupo</button>`
+          :'<button class="btn p s" id="g-new">Salvar como grupo</button>'):''}
+        <button class="lnk2" id="g-clr">Limpar seleção</button>`
+      :`<span class="info">Marque pessoas na tabela para ver os indicadores só delas${S.grupos?' e salvar como grupo (ex.: um por contrato)':''}.</span>`}
+    </div>`;
   $('main').innerHTML = `
     ${barraFiltro(base)}
     ${S.pend.length?`<div class="card"><h2>Pedidos para decidir (${S.pend.length})</h2>
@@ -661,34 +697,74 @@ function vEquipe(){
         <div class="sub">${esc(p.motivo)} ${p.antecedencia_horas<0?'<span class="tag t-no">Pedido depois do início</span>':''}</div>
         <div class="a"><button class="btn ok s" data-dec="autorizada" data-id="${p.id}">Autorizar</button>
           <button class="btn no s" data-dec="negada" data-id="${p.id}">Negar</button></div></div>`).join('')}</div>`:''}
+    ${selbar}
     <div class="kpis">
-      <div class="st"><div class="l">Pessoas com HE no mês</div><div class="v">${comHE.filter(r=>r.normalizado>0).length}</div><div class="l">de ${eq.length}</div></div>
+      <div class="st"><div class="l">Pessoas com HE no mês</div><div class="v">${alvo.filter(r=>r.normalizado>0).length}</div><div class="l">de ${alvo.length}${selEq.length?' selecionadas':''}</div></div>
+      <div class="st"><div class="l">HE feitas (sem fator)</div><div class="v">${hm(heFeitas)}</div><div class="l">horas reais além da jornada</div></div>
       <div class="st"><div class="l">Folga gerada</div><div class="v">${hm(tot('normalizado'))}</div><div class="l">≈ ${(tot('normalizado')/528).toFixed(1).replace('.',',')} dias de 8h48</div></div>
       <div class="st"><div class="l">Folga ainda a tirar</div><div class="v plus">${hm(tot('saldo'))}</div></div>
-      <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div></div>
+      <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div>${aud?`<div class="l">+ ${aud} dia${aud>1?'s':''} para auditar no Quark</div>`:''}</div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <h2 style="margin:0">${S.eu.papel==='rh'?'Pessoas':'Minha equipe'} no mês</h2>
       ${LIDER.includes(S.eu.papel)?'<button class="btn p s" id="b-conv-eq">+ Convidar pessoa</button>':''}</div>
-      <p class="sub" style="margin-bottom:8px">Toque em uma pessoa para ver os dias${LIDER.includes(S.eu.papel)?' e autorizar HE':''}.</p>
-      ${eq.length>12?'<input class="in" id="b-eq" placeholder="Buscar nome" style="margin-bottom:10px">':''}
+      <p class="sub" style="margin-bottom:8px">Toque em uma pessoa para ver os dias${LIDER.includes(S.eu.papel)?' e autorizar HE':''}. Use as caixinhas para selecionar.</p>
+      ${eq.length>12?`<input class="in" id="b-eq" placeholder="Buscar nome" style="margin-bottom:10px" value="${esc(S.busca)}">`:''}
       ${botoesGrupo('ge')}
       <div class="tw"><table class="resp">
-        <thead><tr><th class="l">Nome</th><th>HE feitas</th><th>Folga gerada</th><th>Compensado</th><th>Saldo</th><th class="l">Alertas</th></tr></thead>
+        <thead><tr><th class="ck"><input type="checkbox" id="ck-all" title="Marcar/desmarcar todos os que aparecem" aria-label="Selecionar todos"></th><th class="l">Nome</th><th>HE feitas</th><th>Folga gerada</th><th>Compensado</th><th>Saldo</th><th class="l">Alertas</th></tr></thead>
         <tbody>${corpo}</tbody></table></div>
       ${eq.length?'':'<p class="muted">Ninguém da equipe aprovado ainda. As pessoas aparecem aqui quando o cadastro delas indicar você como superior.</p>'}
     </div>`;
+  const redesenhar = () => { const y = scrollY; vEquipe(); scrollTo(0, y); };
   document.querySelectorAll('[data-dec]').forEach(b => b.onclick = async () => {
     try { await rpc('he_decidir', {p_token:S.token, p_id:+b.dataset.id, p_status:b.dataset.dec}); carregar(); } catch(e){ alertar(e.message); }
   });
-  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = () => detalhe(eq[+tr.dataset.i]));
+  document.querySelectorAll('tr[data-i]').forEach(tr => tr.onclick = ev => { if (!ev.target.closest('td.ck')) detalhe(eq[+tr.dataset.i]); });
+  document.querySelectorAll('td.ck').forEach(td => td.onclick = ev => { ev.stopPropagation(); if (ev.target.tagName !== 'INPUT') td.querySelector('input').click(); });
+  document.querySelectorAll('[data-ck]').forEach(c => c.onchange = () => { c.checked ? S.sel.add(c.dataset.ck) : S.sel.delete(c.dataset.ck); redesenhar(); });
+  const visiveis = () => [...document.querySelectorAll('tr[data-i]')].filter(tr => tr.style.display !== 'none').map(tr => tr.querySelector('[data-ck]').dataset.ck);
+  const ckAll = $('ck-all'), vis = visiveis();
+  ckAll.checked = vis.length > 0 && vis.every(id => S.sel.has(id));
+  ckAll.indeterminate = !ckAll.checked && vis.some(id => S.sel.has(id));
+  ckAll.onchange = () => { const v = visiveis(); v.forEach(id => ckAll.checked ? S.sel.add(id) : S.sel.delete(id)); redesenhar(); };
+  if ($('g-sel')) $('g-sel').onchange = () => { const x = S.grupos.find(y => String(y.id) === $('g-sel').value);
+    S.grupoId = x ? x.id : null; S.sel = new Set(x ? x.pessoas : []); S.soSel = !!x; redesenhar(); };
+  if ($('g-so')) $('g-so').onchange = () => { S.soSel = $('g-so').checked; redesenhar(); };
+  if ($('g-clr')) $('g-clr').onclick = () => { S.sel = new Set(); S.grupoId = null; S.soSel = false; redesenhar(); };
+  if ($('g-new')) $('g-new').onclick = () => nomeGrupo(null, '');
+  if ($('g-ren')) $('g-ren').onclick = () => nomeGrupo(g, g.nome);
+  if ($('g-upd')) $('g-upd').onclick = () => salvarGrupo(g.id, g.nome);
+  if ($('g-del')) $('g-del').onclick = async () => {
+    if (!confirm(`Excluir o grupo "${g.nome}"? As pessoas não são afetadas.`)) return;
+    try { await rpc('he_grupo_excluir', {p_token:S.token, p_id:g.id}); S.grupos = S.grupos.filter(x => x.id !== g.id);
+      S.grupoId = null; S.sel = new Set(); S.soSel = false; redesenhar(); } catch(e){ alertar(e.message); } };
   if ($('b-conv-eq')) $('b-conv-eq').onclick = () => convidar();
-  if ($('b-eq')) $('b-eq').oninput = () => { const q = $('b-eq').value.toLowerCase();
+  const buscar = () => { const q = S.busca.toLowerCase();
     document.querySelectorAll('tr[data-i]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none');
     document.querySelectorAll('tr.grp').forEach(tr => tr.style.display = q ? 'none' : '');
     if (!q) document.querySelectorAll('tr[data-de]').forEach(l => l.style.display = FECHADOS.has(l.dataset.de) ? 'none' : ''); };
+  if ($('b-eq')) { $('b-eq').oninput = () => { S.busca = $('b-eq').value; buscar(); }; if (S.busca) buscar(); }
   ligarFiltro(vEquipe);
-  ligarGrupos('ge', porSetor(eq).map(([k]) => 'eq:'+k));
+  ligarGrupos('ge', porSetor(lista).map(([k]) => 'eq:'+k));
+}
+/* grupos salvos: nome (novo ou renomear) e gravação */
+function nomeGrupo(g, atual){
+  modal(`<div class="md-h"><h2 style="margin:0">${g?'Renomear grupo':'Salvar grupo'}</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">${S.sel.size} pessoa${S.sel.size>1?'s':''} selecionada${S.sel.size>1?'s':''}. Só você vê seus grupos.</p>
+    <label for="gn">Nome do grupo</label><input class="in" id="gn" maxlength="60" value="${esc(atual)}" placeholder="Ex.: Contrato CESAN Norte">
+    <button class="btn p w" id="gn-ok">Salvar</button><div id="gn-m"></div>`);
+  $('gn').focus();
+  $('gn-ok').onclick = () => salvarGrupo(g ? g.id : null, $('gn').value.trim(), 'gn-m', g ? g.pessoas : null);
+  $('gn').onkeydown = e => { if (e.key === 'Enter') $('gn-ok').click(); };
+}
+async function salvarGrupo(id, nome, el, pessoas){
+  if (!nome) return el ? msg(el, 'Dê um nome ao grupo.') : null;
+  try {
+    const nid = await rpc('he_grupo_salvar', {p_token:S.token, p_id:id, p_nome:nome, p_pessoas:pessoas || [...S.sel]});
+    S.grupos = await rpc('he_grupos', {p_token:S.token}); S.grupoId = nid; S.soSel = true; if (pessoas) S.sel = new Set(pessoas);
+    fecharModal(); vEquipe();
+  } catch(e){ el ? msg(el, e.message) : alertar(e.message); }
 }
 async function detalhe(p){
   modal('<div class="loading">Carregando…</div>');
@@ -703,12 +779,13 @@ async function detalhe(p){
     const ev = dias.filter(d => diaRelevante(d) || /interst/i.test(d.observacao||''));
     const fmtDH = t => t.slice(8,10)+'/'+t.slice(5,7)+' '+t.slice(11,16);
     modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
-      <p class="sub">Saldo de folga: <b>${hm(p.saldo)}</b> · gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)}</p>
+      <p class="sub">HE feitas: <b>${hm(p.he50+p.he75+p.he100)}</b> · folga gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)} · saldo de folga <b>${hm(p.saldo)}</b></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
         ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button><button class="btn s" id="b-acn">+ Acionamento de sobreaviso</button>':''}
         <button class="btn s" id="b-imp">Imprimir relatório do mês</button></div>
       <h3 style="margin-top:10px">Dias com HE ou compensação</h3>
-      ${ev.map(d=>diaHTML(d, d.sugestao&&podeAut?`<div class="sug">🌙 Batida na noite de sobreaviso (${fmtDH(d.sugestao.split('|')[0])} a ${fmtDH(d.sugestao.split('|')[1])}). Foi acionamento?
+      ${dias.some(d=>d.aud_tol)?`<div class="note" style="background:#EFE3FA;color:#5B2A86">⚠ ${dias.filter(d=>d.aud_tol).length} dia(s) dentro da tolerância de ponto em que o Quark apontou HE (${hm(dias.reduce((s,d)=>s+(d.aud_tol||0),0))}). Peça ao RH para auditar no Quark. Até lá, essas horas seguem contando como estão no ponto.</div>`:''}
+      ${ev.length?cabDias():''}${ev.map(d=>diaHTML(d, d.sugestao&&podeAut?`<div class="sug">🌙 Batida na noite de sobreaviso (${fmtDH(d.sugestao.split('|')[0])} a ${fmtDH(d.sugestao.split('|')[1])}). Foi acionamento?
           <button class="btn s" data-sug="${d.data}|${d.sugestao}">Registrar acionamento</button></div>`:'')).join('')||'<p class="muted">Nada neste mês.</p>'}
       ${acs.length?`<h3 style="margin-top:14px">Acionamentos de sobreaviso</h3>${acs.map(a=>`<div class="pend"><b>${fmtDH(a.inicio)} → ${fmtDH(a.fim)}</b>
         <span class="tag t-sa">noite de ${a.data.split('-').reverse().slice(0,2).join('/')}</span>
@@ -892,7 +969,9 @@ function manualHTML(papel){
     sec('6. Aba Equipe', `
       <p>Mostra só a sua equipe e as equipes abaixo. O número vermelho na aba indica pedidos esperando decisão.</p>
       <ul><li><b>Pedidos para decidir:</b> ${B('Autorizar','ok')} ou ${B('Negar','no')}.</li>
-        <li><b>Alertas por pessoa:</b> ${T('sem autorização','t-no')} ${T('interstício','t-wait')} ${T('pedido','t-gray')} ${T('ponto incompleto','t-inc')} ${T('acionamento a confirmar','t-sa')}.</li>
+        <li><b>Alertas por pessoa:</b> ${T('sem autorização','t-no')} ${T('interstício','t-wait')} ${T('pedido','t-gray')} ${T('ponto incompleto','t-inc')} ${T('acionamento a confirmar','t-sa')} ${T('auditar Quark','t-aud')}.</li>
+        <li><b>Selecionar e grupos:</b> marque as caixinhas na tabela da Equipe e os indicadores do topo passam a somar só as pessoas marcadas. Use <b>Salvar como grupo</b> (ex.: um grupo por contrato) e depois é só escolher o grupo no menu. Só você vê os seus grupos.</li>
+        <li>${T('⚠ Auditar Quark – erro de tolerância','t-aud')}: as marcações do dia estão dentro da tolerância do RH (até 5 min por marcação, 10 min no dia, almoço cumprido), mas o Quark apontou HE. Peça ao RH para auditar. O app não muda o número: segue o Quark até ele ser corrigido.</li>
         <li>Toque no nome para ver os dias. Ali:
           <ul><li>${B('+ Autorizar HE','p')} registra uma HE já combinada ou regulariza dia passado (não muda horas, só registra quem autorizou e por quê).</li>
             <li>${B('+ Acionamento de sobreaviso')} lança um acionamento. Quando há batida na noite de escala, o app sugere: ${B('Registrar acionamento')} já vem com o horário do ponto.</li>
