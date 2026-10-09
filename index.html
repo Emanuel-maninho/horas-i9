@@ -138,6 +138,11 @@ label{display:block;font-size:12px;font-weight:700;color:var(--ink2);margin:10px
 td.ck,th.ck{width:34px;text-align:center!important;padding-left:4px!important;padding-right:4px!important}
 td.ck input,th.ck input{width:18px;height:18px;cursor:pointer;accent-color:var(--red)}
 tr.sel td{background:#FFF6F6}
+td.alertas{white-space:normal;min-width:150px}
+td.alertas .tag{margin:1px 0}
+.gopt{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+.gopt:hover{background:#FAFAFA}.gopt input{width:18px;height:18px;accent-color:var(--red)}
+.gopt .sub{margin:0}
 @media(max-width:640px){table.resp td.ck{display:block;float:right;width:auto;padding:0}}
 .plus{color:var(--red)}.minus{color:var(--ok)}
 .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;vertical-align:1px}
@@ -315,7 +320,7 @@ tr.grp td span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--
    Preencher com os dados do projeto Supabase "I9 Engenharia" (Settings → API).
    Use a chave PUBLISHABLE / anon — nunca a service_role aqui. */
 const SUPABASE_URL = 'https://blinftijbpyqduenkcub.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsaW5mdGlqYnB5cWR1ZW5rY3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMzU1MDQsImV4cCI6MjA5MjgxMTUwNH0.ODQC6tpe1RKFe78LB6GhinD74iIzWzLQwQbAkJ4BxNM';
+const SUPABASE_ANON_KEY = 'eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsaW5mdGlqYnB5cWR1ZW5rY3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMzU1MDQsImV4cCI6MjA5MjgxMTUwNH0';
 const API = (window.HE_API || SUPABASE_URL + '/rest/v1');
 
 /* ════ utilidades ════ */
@@ -674,7 +679,7 @@ function vEquipe(){
           <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.cargo?' · '+esc(r.cargo):''}${r.superior?' · '+esc(r.superior):''}</div></td>
           <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
           <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
-          <td class="l">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.aud_dias?`<span class="tag t-aud">${r.aud_dias} auditar Quark</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
+          <td class="l alertas">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.aud_dias?`<span class="tag t-aud">${r.aud_dias} auditar Quark</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
   const corpo = usaFiltro()
     ? porSetor(lista).map(([k,ps]) => cabGrupo('eq:'+k, 7, k, `${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}`) + ps.map(r => linhaDoGrupo('eq:'+k, linhaEq(r))).join('')).join('')
     : lista.map(linhaEq).join('');
@@ -686,8 +691,8 @@ function vEquipe(){
         ${S.grupos.map(x=>`<option value="${x.id}" ${x.id===S.grupoId?'selected':''}>${esc(x.nome)} (${x.pessoas.length})</option>`).join('')}</select>`:''}
       ${selEq.length?`<span class="info">Indicadores de <b>${selEq.length}</b> de ${eq.length} pessoas${g?` · grupo <b>${esc(g.nome)}</b>${alterado?' (alterado)':''}`:''}</span>
         <label class="info" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="g-so" ${S.soSel?'checked':''}> só os selecionados na tabela</label>
-        ${S.grupos?(g?`${alterado?'<button class="btn p s" id="g-upd">Salvar alterações no grupo</button>':''}<button class="btn s" id="g-ren">Renomear</button><button class="btn s" id="g-new">Salvar como novo grupo</button><button class="btn no s" id="g-del">Excluir grupo</button>`
-          :'<button class="btn p s" id="g-new">Salvar como grupo</button>'):''}
+        ${S.grupos?(g?`${alterado?'<button class="btn p s" id="g-upd">Salvar alterações no grupo</button>':''}<button class="btn s" id="g-ren">Renomear</button><button class="btn s" id="g-new">Salvar como novo grupo</button>${S.grupos.length>1?'<button class="btn s" id="g-add">Adicionar a outro grupo</button>':''}<button class="btn no s" id="g-del">Excluir grupo</button>`
+          :`${S.grupos.length?'<button class="btn p s" id="g-add">Adicionar a um grupo</button><button class="btn s" id="g-new">Criar novo grupo</button>':'<button class="btn p s" id="g-new">Salvar como grupo</button>'}`):''}
         <button class="lnk2" id="g-clr">Limpar seleção</button>`
       :`<span class="info">Marque pessoas na tabela para ver os indicadores só delas${S.grupos?' e salvar como grupo (ex.: um por contrato)':''}.</span>`}
     </div>`;
@@ -735,6 +740,7 @@ function vEquipe(){
   if ($('g-so')) $('g-so').onchange = () => { S.soSel = $('g-so').checked; redesenhar(); };
   if ($('g-clr')) $('g-clr').onclick = () => { S.sel = new Set(); S.grupoId = null; S.soSel = false; redesenhar(); };
   if ($('g-new')) $('g-new').onclick = () => nomeGrupo(null, '');
+  if ($('g-add')) $('g-add').onclick = () => addAoGrupo(S.grupoId);
   if ($('g-ren')) $('g-ren').onclick = () => nomeGrupo(g, g.nome);
   if ($('g-upd')) $('g-upd').onclick = () => salvarGrupo(g.id, g.nome);
   if ($('g-del')) $('g-del').onclick = async () => {
@@ -749,6 +755,42 @@ function vEquipe(){
   if ($('b-eq')) { $('b-eq').oninput = () => { S.busca = $('b-eq').value; buscar(); }; if (S.busca) buscar(); }
   ligarFiltro(vEquipe);
   ligarGrupos('ge', porSetor(lista).map(([k]) => 'eq:'+k));
+}
+/* adicionar a seleção a um grupo existente (opcional: mover, tirando dos outros grupos) */
+function addAoGrupo(exceto){
+  const sel = [...S.sel];
+  const nomeDe = id => (S.resumo.find(r => r.pessoa_id === id) || {}).nome || '';
+  const ops = S.grupos.filter(x => x.id !== exceto);
+  modal(`<div class="md-h"><h2 style="margin:0">Adicionar a um grupo</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">${sel.length===1?esc(nomeDe(sel[0])):sel.length+' pessoas selecionadas'}. Escolha o grupo:</p>
+    ${ops.map((x,i) => { const novos = sel.filter(id => !x.pessoas.includes(id)).length;
+      return `<label class="gopt"><input type="radio" name="gdest" value="${x.id}" ${i===0?'checked':''}>
+        <div><b>${esc(x.nome)}</b><div class="sub">${x.pessoas.length} pessoa${x.pessoas.length===1?'':'s'} · ${novos?`entra${novos>1?'m':''} ${novos}`:'todos já estão no grupo'}</div></div></label>`; }).join('')}
+    <label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-weight:400">
+      <input type="checkbox" id="g-mov" style="margin-top:3px">
+      <span><b>Mover</b>: tirar ${sel.length===1?'essa pessoa':'essas pessoas'} dos outros grupos<br><span class="sub">Deixe desmarcado se a pessoa pode estar em mais de um grupo (ex.: atende dois contratos).</span></span></label>
+    <button class="btn p w" id="g-ok">Adicionar</button><div id="g-m"></div>`);
+  $('g-ok').onclick = async () => {
+    const dest = S.grupos.find(x => String(x.id) === (document.querySelector('[name=gdest]:checked')||{}).value);
+    if (!dest) return msg('g-m', 'Escolha um grupo.');
+    busy($('g-ok'), true);
+    try {
+      const juntos = [...new Set([...dest.pessoas, ...sel])];
+      await rpc('he_grupo_salvar', {p_token:S.token, p_id:dest.id, p_nome:dest.nome, p_pessoas:juntos});
+      const vazios = [];
+      if ($('g-mov').checked) for (const x of S.grupos) {
+        if (x.id === dest.id || !x.pessoas.some(id => S.sel.has(id))) continue;
+        const resto = x.pessoas.filter(id => !S.sel.has(id));
+        if (!resto.length) { vazios.push(x.nome); continue; }
+        await rpc('he_grupo_salvar', {p_token:S.token, p_id:x.id, p_nome:x.nome, p_pessoas:resto});
+      }
+      S.grupos = await rpc('he_grupos', {p_token:S.token});
+      const g2 = S.grupos.find(x => x.id === dest.id);
+      S.grupoId = dest.id; S.sel = new Set(g2 ? g2.pessoas : juntos); S.soSel = true;
+      fecharModal(); vEquipe();
+      if (vazios.length) alertar(`O grupo ${vazios.join(', ')} ficaria vazio, então não foi alterado. Se não precisar mais dele, escolha-o no menu e use "Excluir grupo".`);
+    } catch(e){ msg('g-m', e.message); busy($('g-ok'), false); }
+  };
 }
 /* grupos salvos: nome (novo ou renomear) e gravação */
 function nomeGrupo(g, atual){
@@ -972,7 +1014,7 @@ function manualHTML(papel){
       <p>Mostra só a sua equipe e as equipes abaixo. O número vermelho na aba indica pedidos esperando decisão.</p>
       <ul><li><b>Pedidos para decidir:</b> ${B('Autorizar','ok')} ou ${B('Negar','no')}.</li>
         <li><b>Alertas por pessoa:</b> ${T('sem autorização','t-no')} ${T('interstício','t-wait')} ${T('pedido','t-gray')} ${T('ponto incompleto','t-inc')} ${T('acionamento a confirmar','t-sa')} ${T('auditar Quark','t-aud')}.</li>
-        <li><b>Selecionar e grupos:</b> marque as caixinhas na tabela da Equipe e os indicadores do topo passam a somar só as pessoas marcadas. Use <b>Salvar como grupo</b> (ex.: um grupo por contrato) e depois é só escolher o grupo no menu. Só você vê os seus grupos.</li>
+        <li><b>Selecionar e grupos:</b> marque as caixinhas na tabela da Equipe e os indicadores do topo passam a somar só as pessoas marcadas. Use <b>Salvar como grupo</b> (ex.: um grupo por contrato) e depois é só escolher o grupo no menu. Esqueceu alguém? Marque a pessoa e use <b>Adicionar a um grupo</b>; com <b>Mover</b> ela sai dos outros grupos. Só você vê os seus grupos.</li>
         <li>${T('⚠ Auditar Quark – erro de tolerância','t-aud')}: as marcações do dia estão dentro da tolerância do RH (até 5 min por marcação, 10 min no dia, almoço cumprido), mas o Quark apontou HE. Peça ao RH para auditar. O app não muda o número: segue o Quark até ele ser corrigido.</li>
         <li>Toque no nome para ver os dias. Ali:
           <ul><li>${B('+ Autorizar HE','p')} registra uma HE já combinada ou regulariza dia passado (não muda horas, só registra quem autorizou e por quê).</li>
