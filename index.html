@@ -143,6 +143,9 @@ td.alertas .tag{margin:1px 0}
 .gopt{display:flex;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
 .gopt:hover{background:#FAFAFA}.gopt input{width:18px;height:18px;accent-color:var(--red)}
 .gopt .sub{margin:0}
+.card.av.enviado{opacity:.6}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
+.card.av textarea{resize:vertical;font-family:inherit;line-height:1.45}
 @media(max-width:640px){table.resp td.ck{display:block;float:right;width:auto;padding:0}}
 .plus{color:var(--red)}.minus{color:var(--ok)}
 .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:700;vertical-align:1px}
@@ -509,6 +512,7 @@ async function iniciar(){
   if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
   if (LIDER.includes(S.eu.papel)) tabs.push(['sa','Sobreaviso']);
   if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
+  if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['av','Avisos']);
   if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['cad','Cadastros']);
   tabs.push(['man','Manual']);
   S.tabs = tabs;
@@ -544,6 +548,7 @@ async function carregar(){
     else if (S.tab === 'rh') vRH();
     else if (S.tab === 'cad') await vCad();
     else if (S.tab === 'sa') await vSobreaviso();
+    else if (S.tab === 'av') await vAvisos();
     else if (S.tab === 'man') $('main').innerHTML = manualHTML(S.eu.papel);
   } catch(e){ $('main').innerHTML = `<div class="card"><div class="msg e">${esc(e.message)}</div></div>`; }
 }
@@ -1034,6 +1039,8 @@ function manualHTML(papel){
       <ul><li><b>Filtros:</b> I9 Matriz, I9 Filial, Fio Forte ou Todos; em I9 Matriz, <b>Só Engenharia</b>. Listas agrupadas por setor (toque no setor para recolher).</li>
         <li><b>Fechamento RH:</b> escolha o mês e a <b>ordem de abatimento</b>; confira por pessoa HE por faixa, compensado, noturno e sobreaviso; ${B('Exportar CSV')} leva à folha (traz o acionamento separado por faixa).</li>
         <li><b>Cadastros:</b> ${B('Aprovar todos como indicado','ok')}, ${B('+ Convidar','p')}, ${B('Convites em lote')}, ${B('+ Pessoa fora do ponto')} e ${B('Editar')} (função, superior, setor, celular, matrícula, hora base, gerar convite, resetar PIN, bloquear).</li>
+        <li><b>Cadastros, filtros:</b> além de buscar por nome e escolher o setor, filtre por <b>Superior</b> e por <b>Função</b>. Clique em Nome ou Setor no cabeçalho para ordenar.</li>
+        <li><b>Avisos:</b> escolha o que entra (${T('Ponto incompleto','t-inc')}, Top em horas extras, ${T('HE sem autorização','t-no')}, ${T('Auditar Quark','t-aud')}) e o app monta uma mensagem para cada superior imediato com o bloco da equipe dele. Revise o texto e use ${B('Enviar no WhatsApp','p')} ou ${B('Copiar')}. Valores em R$ nunca entram na mensagem.</li>
         <li>Marque várias pessoas na lista para aplicar a mesma função ou o mesmo superior de uma vez.</li></ul>`, false, 'RH / Admin'),
   );
   partes.push(sec('Cuidados e dúvidas', `
@@ -1238,7 +1245,15 @@ async function vCad(){
     .sort((a,b) => (a==='Sem setor')-(b==='Sem setor') || (SETORES.indexOf(a)+1||500) - (SETORES.indexOf(b)+1||500));
   if (S.fSet && !setoresPresentes.includes(S.fSet)) S.fSet = '';
   const ordS = k => k ? (SETORES.indexOf(k)+1 || 500) : 999;
-  const ativos = filtrados.filter(p => !S.fSet || (p.setor || 'Sem setor') === S.fSet)
+  const supK = p => p.superior_id || '__sem';
+  const supsPresentes = [...new Map(filtrados.map(p => [supK(p), p.superior || '— sem superior —'])).entries()]
+    .sort((a,b) => (a[0]==='__sem')-(b[0]==='__sem') || a[1].localeCompare(b[1]));
+  if (S.fSup && !supsPresentes.some(([k]) => k === S.fSup)) S.fSup = '';
+  const papK = p => p.papel === 'colaborador' && p.status !== 'ativo' ? '__semfuncao' : p.papel;
+  const papsPresentes = [...new Set(filtrados.map(papK))].sort((a,b) => (NIVEL[b]||-1) - (NIVEL[a]||-1));
+  if (S.fPap && !papsPresentes.includes(S.fPap)) S.fPap = '';
+  const nPor = (fn, k) => filtrados.filter(p => fn(p) === k).length;
+  const ativos = filtrados.filter(p => (!S.fSet || (p.setor || 'Sem setor') === S.fSet) && (!S.fSup || supK(p) === S.fSup) && (!S.fPap || papK(p) === S.fPap))
     .sort((a,b) => S.ordCad === 'setor' ? (ordS(a.setor) - ordS(b.setor) || a.nome.localeCompare(b.nome)) : a.nome.localeCompare(b.nome));
   const seta = k => S.ordCad === k || (!S.ordCad && k === 'nome') ? ' ▾' : '';
   const cont = s => ps.filter(p=>p.status===s).length;
@@ -1265,7 +1280,13 @@ async function vCad(){
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
         <input class="in" id="busca" placeholder="Buscar nome" style="flex:2 1 220px;margin:0">
         <select class="in" id="f-set" style="flex:1 1 180px;margin:0"><option value="">Todos os setores (${filtrados.length})</option>
-          ${setoresPresentes.map(k=>`<option ${S.fSet===k?'selected':''}>${esc(k)}</option>`).join('')}</select></div>
+          ${setoresPresentes.map(k=>`<option ${S.fSet===k?'selected':''}>${esc(k)}</option>`).join('')}</select>
+        <select class="in" id="f-sup" style="flex:1 1 200px;margin:0" aria-label="Superior"><option value="">Todos os superiores</option>
+          ${supsPresentes.map(([k,n])=>`<option value="${k}" ${S.fSup===k?'selected':''}>${esc(n)} (${nPor(supK,k)})</option>`).join('')}</select>
+        <select class="in" id="f-pap" style="flex:1 1 160px;margin:0" aria-label="Função"><option value="">Todas as funções</option>
+          ${papsPresentes.map(k=>`<option value="${k}" ${S.fPap===k?'selected':''}>${k==='__semfuncao'?'— (sem acesso)':PAPEL[k]} (${nPor(papK,k)})</option>`).join('')}</select>
+        ${S.fSet||S.fSup||S.fPap?'<button class="lnk2" id="f-limpa">limpar filtros</button>':''}</div>
+      ${S.fSet||S.fSup||S.fPap?`<p class="sub" style="margin:-4px 0 8px">${ativos.length} pessoa${ativos.length===1?'':'s'} com os filtros</p>`:''}
       ${adm?`<div id="lote-bar" class="lote hidden"><b id="lote-n"></b>
         <select class="in" id="lote-pap"><option value="">Função: manter</option>${opPap('')}</select>
         <select class="in" id="lote-sup"><option value="__manter">Superior: manter</option>${opcoesSuperior(null, null, '— sem superior —')}</select>
@@ -1295,6 +1316,9 @@ async function vCad(){
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => editar(ps.find(p=>p.id===b.dataset.ed), opSup, opPap, adm));
   ligarFiltro(vCad);
   $('f-set').onchange = () => { S.fSet = $('f-set').value; vCad(); };
+  $('f-sup').onchange = () => { S.fSup = $('f-sup').value; vCad(); };
+  $('f-pap').onchange = () => { S.fPap = $('f-pap').value; vCad(); };
+  if ($('f-limpa')) $('f-limpa').onclick = () => { S.fSet = S.fSup = S.fPap = ''; vCad(); };
   if (adm) {
     const marcados = () => [...document.querySelectorAll('input.sel:checked')].map(i => i.value);
     const atualizar = () => { const n = marcados().length;
@@ -1337,6 +1361,93 @@ async function vCad(){
         convidar({id, nome:$('n-nome').value.toUpperCase()}); S.pessoas = null; } catch(e){ msg('n-m', e.message); }
     };
   };
+}
+/* ════ AVISOS AOS SUPERIORES ════
+   Junta, por superior imediato, os colaboradores com pendências e monta a mensagem de WhatsApp. Sem valores em R$. */
+const nomeBonito = n => String(n||'').toLowerCase().replace(/(^|\s)(\S)/g, (m,a,b) => a + b.toUpperCase()).replace(/\s(D[aeo]s?|E)\s/g, m => m.toLowerCase());
+async function vAvisos(){
+  if (!S.pessoas) S.pessoas = await rpc('he_admin_pessoas', {p_token:S.token});
+  let det;
+  try { det = await rpc('he_avisos_detalhe', {p_token:S.token, p_mes:mesData()}); }
+  catch(e){ $('main').innerHTML = `<div class="card"><div class="msg e">Falta atualizar o banco: rode o arquivo 12_avisos.sql no Supabase. (${esc(e.message)})</div></div>`; return; }
+  S.av = S.av || {inc:true, top:true, n:5, semaut:false, aud:false, sup:'', enviados:new Set()};
+  const A = S.av;
+  const D = new Map(det.map(d => [d.pessoa_id, d]));
+  const ate = det.find(d => d.ate)?.ate;
+  const P = new Map(S.pessoas.map(p => [p.id, p]));
+  const base = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
+  const gente = filtrar(base);
+  const grupos = new Map();
+  for (const r of gente) { const k = (P.get(r.pessoa_id)||{}).superior_id || '__sem';
+    if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(r); }
+  const mesTxt = new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'});
+  const blocos = [];
+  for (const [k, eq] of grupos) {
+    if (A.sup && A.sup !== k) continue;
+    const det_ = r => D.get(r.pessoa_id) || {};
+    const inc = A.inc ? eq.filter(r => det_(r).incompletos) : [];
+    const top = A.top ? eq.filter(r => r.he50+r.he75+r.he100 > 0).sort((a,b) => (b.he50+b.he75+b.he100) - (a.he50+a.he75+a.he100)).slice(0, A.n) : [];
+    const sa = A.semaut ? eq.filter(r => det_(r).sem_aut) : [];
+    const au = A.aud ? eq.filter(r => det_(r).auditar) : [];
+    if (!inc.length && !top.length && !sa.length && !au.length) continue;
+    const sup = P.get(k);
+    const partes = [];
+    if (inc.length) partes.push(`⚠️ *Ponto incompleto no Quark* (pedir a justificativa e acertar com o RH):\n` + inc.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).incompletos}`).join('\n'));
+    if (top.length) partes.push(`⏱️ *Top ${top.length} em horas extras no mês* (horas feitas, sem fator):\n` + top.map((r,i) => `${i+1}. ${nomeBonito(r.nome)}: ${hm(r.he50+r.he75+r.he100)}`).join('\n'));
+    if (sa.length) partes.push(`❗ *HE sem autorização no app*:\n` + sa.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).sem_aut}`).join('\n'));
+    if (au.length) partes.push(`🔎 *Para auditar no Quark* (dentro da tolerância, mas com HE apontada):\n` + au.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).auditar}`).join('\n'));
+    const texto = `Olá, ${sup ? nomeBonito(sup.nome.split(' ')[0]) : ''}! Resumo de horas da sua equipe em ${mesTxt}${ate ? ` (ponto importado até ${ate.slice(8,10)}/${ate.slice(5,7)})` : ''}.\n\n`
+      + partes.join('\n\n') + `\n\nDetalhes no Horas i9: ${linkApp()}`;
+    blocos.push({k, sup, eq, texto, n:{inc:inc.length, top:top.length, sa:sa.length, au:au.length}});
+  }
+  blocos.sort((a,b) => (a.k==='__sem') - (b.k==='__sem') || (a.sup?.nome||'').localeCompare(b.sup?.nome||''));
+  const supsOpc = [...grupos.keys()].map(k => [k, k==='__sem' ? '— sem superior —' : (P.get(k)||{}).nome || '?']).sort((a,b) => a[1].localeCompare(b[1]));
+  const chip = (on, id, txt) => `<button class="chip ${on?'on':''}" id="${id}">${txt}</button>`;
+  $('main').innerHTML = `
+    ${barraFiltro(base)}
+    <div class="card">
+      <h2 style="margin:0 0 4px">Avisos aos superiores</h2>
+      <p class="sub" style="margin-bottom:10px">Monta uma mensagem para cada superior imediato com o bloco da equipe dele. Revise o texto e envie pelo WhatsApp. Valores em R$ nunca entram.</p>
+      <div class="chips" style="margin-bottom:8px">
+        ${chip(A.inc,'av-inc','Ponto incompleto')}
+        ${chip(A.top,'av-top','Top em horas extras')}
+        ${chip(A.semaut,'av-sa','HE sem autorização')}
+        ${chip(A.aud,'av-aud','Auditar Quark')}
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        ${A.top?`<label class="sub" style="margin:0">Quantos no top <select class="in" id="av-n" style="width:auto;margin:0 0 0 4px;padding:6px">${[3,5,10].map(n=>`<option ${n===A.n?'selected':''}>${n}</option>`).join('')}</select></label>`:''}
+        <select class="in" id="av-sup" style="flex:0 1 320px;margin:0"><option value="">Todos os superiores</option>
+          ${supsOpc.map(([k,n])=>`<option value="${k}" ${A.sup===k?'selected':''}>${esc(n)}</option>`).join('')}</select>
+        ${blocos.length>1?'<button class="btn s" id="av-all">Copiar todas as mensagens</button>':''}
+      </div>
+    </div>
+    ${blocos.length ? blocos.map((b,i) => {
+      const fone = b.sup ? foneWa(b.sup.telefone) : '';
+      const resumo = [b.n.inc&&`${b.n.inc} com ponto incompleto`, b.n.top&&`top ${b.n.top} HE`, b.n.sa&&`${b.n.sa} com HE sem autorização`, b.n.au&&`${b.n.au} para auditar`].filter(Boolean).join(' · ');
+      return `<div class="card av ${A.enviados.has(b.k)?'enviado':''}">
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+          <div><b>${b.sup?esc(b.sup.nome):'Pessoas sem superior cadastrado'}</b>
+            <div class="sub">${b.sup?PAPEL[b.sup.papel]+' · ':''}${b.eq.length} na equipe · ${resumo}${A.enviados.has(b.k)?' · <b style="color:var(--ok,#1B7F3B)">enviado ✓</b>':''}</div></div>
+          <div style="display:flex;gap:6px">
+            ${b.sup?(fone?`<a class="btn p s" data-wa="${i}" target="_blank" rel="noopener">Enviar no WhatsApp</a>`:'<span class="tag t-gray">sem telefone no cadastro</span>'):'<span class="tag t-wait">defina o superior em Cadastros</span>'}
+            <button class="btn s" data-cp="${i}">Copiar</button></div></div>
+        <textarea class="in" data-tx="${i}" rows="${Math.min(18, b.texto.split('\n').length + 1)}" style="margin-top:10px;font-size:13px;white-space:pre-wrap">${esc(b.texto)}</textarea>
+      </div>`; }).join('') : '<div class="card"><p class="muted">Nada para avisar com esses filtros neste mês.</p></div>'}`;
+  const tx = i => document.querySelector(`[data-tx="${i}"]`).value;
+  const copiar = async (t, b) => { try { await navigator.clipboard.writeText(t); b.textContent = 'Copiado ✓'; setTimeout(() => b.textContent = 'Copiar', 1500); }
+    catch(e){ alertar('Não consegui copiar. Selecione o texto e use Ctrl+C.'); } };
+  document.querySelectorAll('[data-wa]').forEach(a => { const b = blocos[+a.dataset.wa];
+    a.onmousedown = a.ontouchstart = () => a.href = `https://wa.me/${foneWa(b.sup.telefone)}?text=${encodeURIComponent(tx(a.dataset.wa))}`;
+    a.href = `https://wa.me/${foneWa(b.sup.telefone)}?text=${encodeURIComponent(b.texto)}`;
+    a.onclick = () => { a.href = `https://wa.me/${foneWa(b.sup.telefone)}?text=${encodeURIComponent(tx(a.dataset.wa))}`; A.enviados.add(b.k);
+      setTimeout(() => a.closest('.av').classList.add('enviado'), 300); }; });
+  document.querySelectorAll('[data-cp]').forEach(b => b.onclick = () => copiar(tx(b.dataset.cp), b));
+  if ($('av-all')) $('av-all').onclick = () => copiar(blocos.map((b,i) => `*${b.sup?b.sup.nome:'Sem superior'}*\n${tx(i)}`).join('\n\n———\n\n'), $('av-all'));
+  const tog = (id, k) => $(id).onclick = () => { A[k] = !A[k]; vAvisos(); };
+  tog('av-inc','inc'); tog('av-top','top'); tog('av-sa','semaut'); tog('av-aud','aud');
+  if ($('av-n')) $('av-n').onchange = () => { A.n = +$('av-n').value; vAvisos(); };
+  $('av-sup').onchange = () => { A.sup = $('av-sup').value; vAvisos(); };
+  ligarFiltro(vAvisos);
 }
 function editar(p, opSup, opPap, adm){
   modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
