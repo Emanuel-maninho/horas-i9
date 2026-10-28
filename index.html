@@ -1374,6 +1374,19 @@ async function vAvisos(){
   const A = S.av;
   const D = new Map(det.map(d => [d.pessoa_id, d]));
   const ate = det.find(d => d.ate)?.ate;
+  /* ponto incompleto: só dias já fechados. O dia de hoje ainda está em curso (as pessoas ainda vão bater). */
+  const isoLocal = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const hojeISO = isoLocal(new Date()), ontemISO = isoLocal(new Date(Date.now()-864e5));
+  const ddmm = iso => iso.slice(8,10)+'/'+iso.slice(5,7);
+  const corteInc = ate && ate < hojeISO ? ate : ontemISO;          // último dia fechado considerado
+  const anoMes = S.mes.slice(0,4);
+  const diasFechados = txt => {                                    // tira do texto os dias depois do corte (ex.: "27/10, 28/10 (sem marcação)")
+    if (typeof txt !== 'string') return txt;
+    return txt.split(/,\s*(?=\d{2}\/\d{2})/).filter(parte => {
+      const m = parte.trim().match(/^(\d{2})\/(\d{2})/);
+      return !m || `${anoMes}-${m[2]}-${m[1]}` <= corteInc;
+    }).join(', ');
+  };
   const P = new Map(S.pessoas.map(p => [p.id, p]));
   const base = S.resumo.filter(r => r.pessoa_id !== S.eu.id);
   const gente = filtrar(base);
@@ -1385,14 +1398,15 @@ async function vAvisos(){
   for (const [k, eq] of grupos) {
     if (A.sup && A.sup !== k) continue;
     const det_ = r => D.get(r.pessoa_id) || {};
-    const inc = A.inc ? eq.filter(r => det_(r).incompletos) : [];
+    const incTxt = r => diasFechados(det_(r).incompletos);
+    const inc = A.inc ? eq.filter(r => incTxt(r)) : [];
     const top = A.top ? eq.filter(r => r.he50+r.he75+r.he100 > 0).sort((a,b) => (b.he50+b.he75+b.he100) - (a.he50+a.he75+a.he100)).slice(0, A.n) : [];
     const sa = A.semaut ? eq.filter(r => det_(r).sem_aut) : [];
     const au = A.aud ? eq.filter(r => det_(r).auditar) : [];
     if (!inc.length && !top.length && !sa.length && !au.length) continue;
     const sup = P.get(k);
     const partes = [];
-    if (inc.length) partes.push(`⚠️ *Ponto incompleto no Quark* (pedir a justificativa e acertar com o RH):\n` + inc.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).incompletos}`).join('\n'));
+    if (inc.length) partes.push(`⚠️ *Ponto incompleto no Quark* até ${ddmm(corteInc)} (pedir a justificativa e acertar com o RH):\n` + inc.map(r => `• ${nomeBonito(r.nome)}: ${incTxt(r)}`).join('\n'));
     if (top.length) partes.push(`⏱️ *Top ${top.length} em horas extras no mês* (horas feitas, sem fator):\n` + top.map((r,i) => `${i+1}. ${nomeBonito(r.nome)}: ${hm(r.he50+r.he75+r.he100)}`).join('\n'));
     if (sa.length) partes.push(`❗ *HE sem autorização no app*:\n` + sa.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).sem_aut}`).join('\n'));
     if (au.length) partes.push(`🔎 *Para auditar no Quark* (dentro da tolerância, mas com HE apontada):\n` + au.map(r => `• ${nomeBonito(r.nome)}: ${det_(r).auditar}`).join('\n'));
