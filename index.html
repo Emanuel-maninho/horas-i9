@@ -326,6 +326,16 @@ const SUPABASE_URL = 'https://blinftijbpyqduenkcub.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsaW5mdGlqYnB5cWR1ZW5rY3ViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzcyMzU1MDQsImV4cCI6MjA5MjgxMTUwNH0.ODQC6tpe1RKFe78LB6GhinD74iIzWzLQwQbAkJ4BxNM';
 const API = (window.HE_API || SUPABASE_URL + '/rest/v1');
 
+/* ════ CONVENÇÃO COLETIVA — 1ª faixa de HE (dia útil, 1ª e 2ª hora) ════
+   A partir da competência abaixo (AAAA-MM) o adicional passa de 50% para 52%.
+   Competências anteriores continuam a 50%, para não alterar demonstrativos já fechados.
+   O banco (função he_resumo_mes / crédito de folga) precisa usar a MESMA regra. */
+const HE1_VIGENCIA = '2026-11';
+const fat50 = (mes) => ((mes || S.mes) >= HE1_VIGENCIA ? 1.52 : 1.5);
+const pct50 = (mes) => Math.round((fat50(mes) - 1) * 100) + '%';
+const fmtF = f => f.toFixed(2).replace('.', ',');
+const hmF = f => hm(60 * f);   // 1,52 → 1h31
+
 /* ════ utilidades ════ */
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -562,7 +572,7 @@ $('b-sair').onclick = () => sair(false);
 /* ── descrição de um dia para o colaborador (só horas) ── */
 function linhasDia(d){
   const it = [];
-  const f50 = d.he50*1.5, f75 = d.he75*1.75, f100 = d.he100*2;
+  const f50 = d.he50*fat50(d.data.slice(0,7)), f75 = d.he75*1.75, f100 = d.he100*2;
   if (d.he50)  it.push({t:`Hora extra ${hm(d.he50)} (dia útil, 1ª e 2ª hora)`, v:f50, r:d.he50});
   if (d.he75)  it.push({t:`Hora extra ${hm(d.he75)} (${new Date(d.data+'T12:00').getDay()===6?'sábado':'após a 2ª hora'})`, v:f75, r:d.he75});
   if (d.he100) it.push({t:`Hora extra ${hm(d.he100)} (domingo/feriado)`, v:f100, r:d.he100});
@@ -619,7 +629,7 @@ async function vMinhas(){
     </div>
     ${nInc?`<div class="note">⚠ ${nInc===1?'Há 1 dia':'Há '+nInc+' dias'} com ponto incompleto neste mês. Justifique no Quark e avise seu superior: enquanto a marcação não for acertada, as horas faltantes contam como horas a menos.</div>`:''}
     ${eu.sa_min?`<div class="note" style="background:#E7EEFA;color:#1D4E89">🌙 Sobreaviso no mês: <b>${hm(eu.sa_min)}</b> à disposição${eu.acion_min?` · ${hm(eu.acion_min)} de acionamento, já somadas às horas extras`:''}.</div>`:''}
-    ${eu.saldo>0?`<div class="note">Cada hora extra vira folga com bônus: 1h vale 1h30 (dia útil), 1h45 (sábado ou após a 2ª hora) ou 2h (domingo/feriado). O que não for compensado até o fim do mês é pago.</div>`:''}
+    ${eu.saldo>0?`<div class="note">Cada hora extra vira folga com bônus: 1h vale ${hmF(fat50())} (dia útil), 1h45 (sábado ou após a 2ª hora) ou 2h (domingo/feriado). O que não for compensado até o fim do mês é pago.</div>`:''}
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px">
         <h2 style="margin:0">Pedir hora extra</h2>
@@ -910,11 +920,11 @@ function imprimir(p, dias, auts){
   let fin = '';
   if (hb) {
     const r = rubricas(p, S.ordem);
-    const v = {he50:r.he50/60*hb*1.5, he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2, sa:sa/60*hb/3};
-    const nomeOrd = {'50_primeiro':'abater primeiro as de 50%','100_primeiro':'abater primeiro as de 100%','proporcional':'abatimento proporcional'}[S.ordem];
+    const v = {he50:r.he50/60*hb*fat50(), he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2, sa:sa/60*hb/3};
+    const nomeOrd = {'50_primeiro':`abater primeiro as de ${pct50()}`,'100_primeiro':'abater primeiro as de 100%','proporcional':'abatimento proporcional'}[S.ordem];
     fin = `<h3>Valores a pagar em folha (hora base ${brl(hb)})</h3>
       <table><thead><tr><th class="l">Rubrica</th><th>Horas</th><th>Fator</th><th>Valor</th></tr></thead><tbody>
-      <tr><td class="l">Horas extras 50% não compensadas</td><td>${hm(r.he50)}</td><td>1,50</td><td>${brl(v.he50)}</td></tr>
+      <tr><td class="l">Horas extras ${pct50()} não compensadas</td><td>${hm(r.he50)}</td><td>${fmtF(fat50())}</td><td>${brl(v.he50)}</td></tr>
       <tr><td class="l">Horas extras 75% não compensadas</td><td>${hm(r.he75)}</td><td>1,75</td><td>${brl(v.he75)}</td></tr>
       <tr><td class="l">Horas extras 100% não compensadas</td><td>${hm(r.he100)}</td><td>2,00</td><td>${brl(v.he100)}</td></tr>
       <tr><td class="l">Adicional noturno</td><td>${hm(not)}</td><td>0,20</td><td>${brl(v.not)}</td></tr>
@@ -932,16 +942,16 @@ function imprimir(p, dias, auts){
       <div><b>Empresa:</b> ${esc(p.empresa||'—')}</div><div><b>Superior imediato:</b> ${esc(p.superior||'—')}</div>
     </div>
     <h3>Resumo da competência</h3>
-    <table><thead><tr><th>Horas extras 50%</th><th>Horas extras 75%</th><th>Horas extras 100%</th><th>Crédito de folga</th><th>Folga compensada</th><th>Saldo pago em folha</th><th>Adicional noturno (horas)</th>${sa?'<th>Sobreaviso (horas)</th>':''}</tr></thead>
+    <table><thead><tr><th>Horas extras ${pct50()}</th><th>Horas extras 75%</th><th>Horas extras 100%</th><th>Crédito de folga</th><th>Folga compensada</th><th>Saldo pago em folha</th><th>Adicional noturno (horas)</th>${sa?'<th>Sobreaviso (horas)</th>':''}</tr></thead>
       <tbody><tr><td>${hm(p.he50)}</td><td>${hm(p.he75)}</td><td>${hm(p.he100)}</td><td>${hm(p.normalizado)}</td>
         <td>${hm(p.compensado)}</td><td><b>${hm(p.saldo)}</b></td><td>${hm(not)}</td>${sa?`<td>${hm(sa)}</td>`:''}</tr></tbody></table>
     ${p.acion_min?`<p class="nota">Das horas extras, ${hm(p.acion_min)} foram de acionamento durante o sobreaviso.</p>`:''}
-    <p class="nota">Cada hora extra gera crédito de folga já com o adicional legal: 1h a 50% = 1h30, a 75% = 1h45, a 100% = 2h.
+    <p class="nota">Cada hora extra gera crédito de folga já com o adicional legal: 1h a ${pct50()} = ${hmF(fat50())}, a 75% = 1h45, a 100% = 2h.
       As folgas e ausências do mês são abatidas desse crédito. O crédito não compensado até o fim da competência é pago em folha,
       com os adicionais, e não é transferido para o mês seguinte.</p>
     ${fin}
     <h3>Detalhamento por dia</h3>
-    ${ev.length?`<table><thead><tr><th class="l">Data</th><th class="l">Marcações</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Noturno</th><th>Folga / ausência</th><th class="l">Observação</th></tr></thead><tbody>
+    ${ev.length?`<table><thead><tr><th class="l">Data</th><th class="l">Marcações</th><th>HE ${pct50()}</th><th>HE 75%</th><th>HE 100%</th><th>Noturno</th><th>Folga / ausência</th><th class="l">Observação</th></tr></thead><tbody>
       ${ev.map(d=>`<tr><td class="l">${dt(d.data)} ${DIA[new Date(d.data+'T12:00').getDay()]}</td><td class="l">${esc(d.batidas||'')}</td>
         <td>${d.he50?hm(d.he50):''}</td><td>${d.he75?hm(d.he75):''}</td><td>${d.he100?hm(d.he100):''}</td>
         <td>${(d.noturna+d.hn)?hm(d.noturna+d.hn):''}</td><td>${d.desconto&&!d.abonado?hm(d.desconto):''}</td>
@@ -993,7 +1003,7 @@ function manualHTML(papel){
         <tr><td>Folga gerada pelas HE</td><td>Crédito que suas horas extras geraram, já com o adicional.</td></tr>
         <tr><td>Já compensado</td><td>Horas a menos no mês já abatidas do crédito.</td></tr></table>
       <table><tr><th>Hora extra feita</th><th>Vira de folga</th></tr>
-        <tr><td>1h em dia útil (1ª e 2ª hora)</td><td>1h30</td></tr>
+        <tr><td>1h em dia útil (1ª e 2ª hora)</td><td>${hmF(fat50())}</td></tr>
         <tr><td>1h no sábado ou depois da 2ª hora</td><td>1h45</td></tr>
         <tr><td>1h em domingo ou feriado</td><td>2h00</td></tr></table>
       <p>O que não for compensado até o fim do mês é <b>pago na folha</b>. Nada passa para o mês seguinte.</p>
@@ -1128,13 +1138,14 @@ async function vSobreaviso(){
 }
 
 /* ════ FECHAMENTO RH ════ */
-const FAT = {he50:1.5, he75:1.75, he100:2.0};
+const fatores = () => ({he50:fat50(), he75:1.75, he100:2.0});
 const ORDENS = {
   '50_primeiro': ['he50','he75','he100'],
   '100_primeiro': ['he100','he75','he50']
 };
 // Divide o saldo não compensado nas rubricas, conforme a ordem de abatimento.
 function rubricas(r, ordem){
+  const FAT = fatores();
   const out = {he50:r.he50, he75:r.he75, he100:r.he100};
   let resto = r.compensado;               // em minutos de hora normal
   if (ordem === 'proporcional') {
@@ -1155,7 +1166,7 @@ function vRH(){
     const p = rubricas(r, S.ordem), hb = r.hora_base;
     const not = (r.noturna + r.hn);
     const val = hb ? {
-      he50: p.he50/60*hb*1.5, he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2,
+      he50: p.he50/60*hb*fat50(), he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2,
       sa: (r.sa_min||0)/60*hb/3
     } : null;
     return {...r, p, not, val, total: val ? val.he50+val.he75+val.he100+val.not+val.sa : null};
@@ -1165,8 +1176,8 @@ function vRH(){
   const op = (k,t,d) => `<label class="opt ${S.ordem===k?'on':''}"><input type="radio" name="ord" value="${k}" ${S.ordem===k?'checked':''}><div><b>${t}</b><span>${d}</span></div></label>`;
   const linhaRH = c => `<tr class="click" data-r="${calc.indexOf(c)}">
           <td class="l">${esc(c.nome)}<div class="sub">${esc(c.cargo||c.empresa||'')}</div></td>
-          <td data-l="HE 50%">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}${c.acion_min?`<div class="sub">acion. ${hm(c.acion_min)}</div>`:''}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
-          <td data-l="Pagar 50%"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td><td data-l="Sobreaviso">${c.sa_min?hm(c.sa_min):'—'}</td>
+          <td data-l="HE ${pct50()}">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}${c.acion_min?`<div class="sub">acion. ${hm(c.acion_min)}</div>`:''}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
+          <td data-l="Pagar ${pct50()}"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td><td data-l="Sobreaviso">${c.sa_min?hm(c.sa_min):'—'}</td>
           <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b><div class="sub">${c.hora_base?'hora '+brl(+c.hora_base):'<span class="tag t-wait">cadastrar hora base</span>'}</div></td></tr>`;
   const corpoRH = usaFiltro()
     ? porSetor(calc).map(([k,cs]) => cabGrupo('rh:'+k, 12, k, `${cs.length} pessoas · saldo ${hm(cs.reduce((s,c)=>s+c.saldo,0))} · ${brl(cs.reduce((s,c)=>s+(c.total||0),0))}`) + cs.map(c => linhaDoGrupo('rh:'+k, linhaRH(c))).join('')).join('')
@@ -1175,10 +1186,10 @@ function vRH(){
     ${barraFiltro(base)}
     <div class="card"><h2>Ordem de abatimento das compensações</h2>
       <div class="expl">Quando a pessoa compensa parte das horas, é preciso definir quais faixas de HE foram quitadas primeiro.
-        <b>O valor total pago é o mesmo em qualquer opção</b>, porque cada faixa carrega o próprio fator (50% = 1,5 · 75% = 1,75 · 100% = 2,0).
+        <b>O valor total pago é o mesmo em qualquer opção</b>, porque cada faixa carrega o próprio fator (${pct50()} = ${fmtF(fat50())} · 75% = 1,75 · 100% = 2,0).
         O que muda é como as horas aparecem nas rubricas do holerite. Confirme com a contabilidade se alguma regra da convenção depende da <i>quantidade</i> de horas por faixa.</div>
-      ${op('50_primeiro','Abater primeiro as de 50% (padrão)','Favorece o colaborador na leitura do holerite: sobram as faixas mais altas. Pode aparecer HE a 100% sem nenhuma a 50%.')}
-      ${op('100_primeiro','Abater primeiro as de 100%','Sobram as faixas mais baixas. Holerite mais "natural" (quem tem 100% também tem 50%).')}
+      ${op('50_primeiro',`Abater primeiro as de ${pct50()} (padrão)`,`Favorece o colaborador na leitura do holerite: sobram as faixas mais altas. Pode aparecer HE a 100% sem nenhuma a ${pct50()}.`)}
+      ${op('100_primeiro','Abater primeiro as de 100%',`Sobram as faixas mais baixas. Holerite mais "natural" (quem tem 100% também tem ${pct50()}).`)}
       ${op('proporcional','Abater proporcionalmente','Cada faixa é reduzida na mesma proporção. Mantém a composição original do mês.')}
       <div id="o-m"></div>
     </div>
@@ -1194,8 +1205,8 @@ function vRH(){
       <button class="btn s" id="b-csv">Exportar CSV</button></div>
       ${botoesGrupo('gr')}
       <div class="tw"><table class="resp cmp">
-        <thead><tr><th class="l">Nome</th><th>HE 50%</th><th>HE 75%</th><th>HE 100%</th><th>Folga gerada</th><th>Compen&shy;sado</th>
-          <th>Pagar 50%</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Sobre&shy;aviso</th><th>Total R$</th></tr></thead>
+        <thead><tr><th class="l">Nome</th><th>HE ${pct50()}</th><th>HE 75%</th><th>HE 100%</th><th>Folga gerada</th><th>Compen&shy;sado</th>
+          <th>Pagar ${pct50()}</th><th>Pagar 75%</th><th>Pagar 100%</th><th>Noturno</th><th>Sobre&shy;aviso</th><th>Total R$</th></tr></thead>
         <tbody>${corpoRH}</tbody>
         <tfoot><tr><td class="l">Total</td><td>${hm(sum(c=>c.he50))}</td><td>${hm(sum(c=>c.he75))}</td><td>${hm(sum(c=>c.he100))}</td>
           <td>${hm(sum(c=>c.normalizado))}</td><td>${hm(sum(c=>c.compensado))}</td>
