@@ -520,8 +520,9 @@ async function iniciar(){
   S.mes = S.mes || mesAtual(); $('mes').value = S.mes;
   const tabs = [['minhas','Minhas horas']];
   if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
-  if (LIDER.includes(S.eu.papel)) tabs.push(['sa','Sobreaviso']);
+  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['sa','Sobreaviso']);
   if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
+  if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rhb','Benefícios extras']);
   if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['av','Avisos']);
   if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['cad','Cadastros']);
   tabs.push(['man','Manual']);
@@ -552,10 +553,11 @@ async function carregar(){
       S.nPendCad = ps.filter(p=>p.status==='pendente').length;
     }
     pintarAbas();
-    document.body.classList.toggle('largo', S.tab === 'rh' || S.tab === 'cad');
+    document.body.classList.toggle('largo', S.tab === 'rh' || S.tab === 'cad' || S.tab === 'rhb');
     if (S.tab === 'minhas') await vMinhas();
     else if (S.tab === 'equipe') vEquipe();
     else if (S.tab === 'rh') vRH();
+    else if (S.tab === 'rhb') await vRHBen();
     else if (S.tab === 'cad') await vCad();
     else if (S.tab === 'sa') await vSobreaviso();
     else if (S.tab === 'av') await vAvisos();
@@ -1068,6 +1070,278 @@ function manualHTML(papel){
 $('go-man').onclick = () => modal(`<div class="md-h"><h2 style="margin:0">Como funciona</h2><button class="x-btn" data-close>×</button></div>${manualHTML(null).replace('class="card man"','class="man"')}`);
 
 /* ════ ESCALA DE SOBREAVISO ════ */
+/* ════ IMPORTAÇÃO DA ESCALA DE SOBREAVISO/PLANTÃO (PDF) ════
+   Lê o PDF com pdf.js usando as coordenadas x/y de cada item de texto — o arquivo
+   é impresso do Excel e tem texto selecionável, não precisa de OCR.
+   Conferido contra os PDFs S44 e S45: mesmo resultado do protótipo em Python,
+   zero divergência em tipo, regionais e funções. */
+const PDFJS_VER = '3.11.174';
+let pdfjsPronto = null;
+function carregarPdfJs(){
+  if (pdfjsPronto) return pdfjsPronto;
+  pdfjsPronto = new Promise((ok, erro) => {
+    const s = document.createElement('script');
+    s.src = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.min.js`;
+    s.onload = () => {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VER}/pdf.worker.min.js`;
+      ok(window.pdfjsLib);
+    };
+    s.onerror = () => erro(new Error('Não consegui carregar o leitor de PDF. Confira a conexão.'));
+    document.head.appendChild(s);
+  });
+  return pdfjsPronto;
+}
+
+const ORDEM_COL = ['EQUIPE','SEG','SAB','DOM','CONTATO'];
+const RE_PERIODO = /DE\s+(\d{2}\/\d{2}\/\d{4})\s+A\s+(\d{2}\/\d{2}\/\d{4})/;
+
+function agrupaLinhas(itens, tol = 1.5){
+  // top = −y, para que "menor top" signifique "mais acima" (o pdf.js conta do rodapé)
+  const ws = itens.filter(i => String(i.t).trim())
+                  .map(i => ({t:String(i.t).trim(), x:i.x, top:-i.y}))
+                  .sort((a,b) => a.top - b.top || a.x - b.x);
+  const out = [];
+  for (const w of ws) {
+    const u = out[out.length-1];
+    if (u && Math.abs(w.top - u.top) <= tol) { u.ws.push(w); u.top = Math.min(u.top, w.top); }
+    else out.push({top:w.top, ws:[w]});
+  }
+  out.forEach(l => { l.ws.sort((a,b) => a.x - b.x); l.txt = l.ws.map(w => w.t).join(' '); });
+  return out;
+}
+function colunasEsc(hdr){
+  const anc = {};
+  for (const w of hdr.ws) { const t = normNome(w.t);
+    if (t.startsWith('EQUIPE') && anc.EQUIPE === undefined) anc.EQUIPE = w.x;
+    else if (t.startsWith('SEGUNDA') && anc.SEG === undefined) anc.SEG = w.x;
+    else if (t.startsWith('SABADO') && anc.SAB === undefined) anc.SAB = w.x;
+    else if (t.startsWith('DOMINGO') && anc.DOM === undefined) anc.DOM = w.x;
+    else if (t.startsWith('CONTATO') && anc.CONTATO === undefined) anc.CONTATO = w.x; }
+  const txt = normNome(hdr.txt), tp = {};
+  for (const [k,rot] of [['SAB','SABADO'],['DOM','DOMINGO']]) {
+    const m = txt.match(new RegExp(rot + '\\s*-\\s*(PLANTAO|SOBREAVISO)'));
+    tp[k] = m ? m[1] : 'SOBREAVISO';
+  }
+  return {anc, tp};
+}
+function qualColuna(x, anc){
+  const ks = ORDEM_COL.filter(k => anc[k] !== undefined);
+  for (let i = 0; i < ks.length; i++) {
+    const lo = i === 0 ? -1e9 : (anc[ks[i-1]] + anc[ks[i]]) / 2;
+    const hi = i === ks.length-1 ? 1e9 : (anc[ks[i]] + anc[ks[i+1]]) / 2;
+    if (x >= lo && x < hi) return ks[i];
+  }
+  return null;
+}
+function limpaCelula(parts){
+  let txt = (parts || []).join(' ').trim();
+  const marc = /\(\s*SOBREAVISO\s*\)/i.test(txt);
+  txt = txt.replace(/\(\s*SOBREAVISO\s*\)/ig, ' ');
+  return {nome: normNome(txt.split(/\s+/).filter(t => t && t !== '-').join(' ')), marc};
+}
+
+function parseEscala(paginas){
+  const erros = []; let periodo = null; const blocos = [];
+  for (const pg of paginas) {
+    const ls = agrupaLinhas(pg.itens);
+    for (const l of ls) { const m = normNome(l.txt).match(RE_PERIODO); if (m && !periodo) periodo = [m[1], m[2]]; }
+    const hidx = ls.map((l,i) => ({l,i}))
+      .filter(({l}) => normNome(l.txt).includes('EQUIPE') && normNome(l.txt).includes('CONTATO'))
+      .map(({i}) => i);
+    const titulo = i => {
+      for (let j = i-1; j >= 0; j--) { const t = normNome(ls[j].txt);
+        if (RE_PERIODO.test(t) || t.includes('ESCALA DE SOBREAVISO')) break;
+        if (t) return {j, nome:t}; }
+      return {j:null, nome:null};
+    };
+    hidx.forEach((i,n) => {
+      const {nome:regional} = titulo(i);
+      let fim = ls.length;
+      if (n+1 < hidx.length) { const t = titulo(hidx[n+1]); fim = t.j !== null ? t.j : hidx[n+1]; }
+      blocos.push({regional, hdr:ls[i], corpo:ls.slice(i+1, fim)});
+    });
+  }
+  if (!periodo) return {erros:['Não achei o período no cabeçalho ("DE dd/mm/aaaa A dd/mm/aaaa"). Confira se é o PDF certo.']};
+  const [di, df] = periodo;
+  const pd = s => new Date(+s.slice(6,10), +s.slice(3,5)-1, +s.slice(0,2));
+  const ini = pd(di), fim = pd(df);
+  const nd = Math.round((fim - ini) / 86400000) + 1;
+  if (nd !== 7) erros.push(`O período do cabeçalho (${di} a ${df}) tem ${nd} dias, não 7.`);
+  if (ini.getDay() !== 1) erros.push(`O período começa em ${di}, que não é uma segunda-feira.`);
+  if (fim.getDay() !== 0) erros.push(`O período termina em ${df}, que não é um domingo.`);
+
+  const saida = [];
+  for (const b of blocos) {
+    const {anc, tp} = colunasEsc(b.hdr);
+    const rows = [], labels = [];
+    for (const l of b.corpo) {
+      const cels = {};
+      for (const w of l.ws) { const k = qualColuna(w.x, anc); if (k) (cels[k] = cels[k] || []).push(w.t); }
+      if (cels.EQUIPE) labels.push({top:l.top, nome:normNome(cels.EQUIPE.join(' '))});
+      if (cels.SEG || cels.SAB || cels.DOM) rows.push({top:l.top, cels});
+    }
+    const limpos = [];
+    for (const r of rows) {
+      const cel = {};
+      for (const k of ['SEG','SAB','DOM']) cel[k] = limpaCelula(r.cels[k]);
+      if (!cel.SEG.nome && !cel.SAB.nome && !cel.DOM.nome) {   // linha só com o marcador
+        const u = limpos[limpos.length-1];
+        if (u) for (const k of ['SEG','SAB','DOM']) if (cel[k].marc) u.cel[k].marc = true;
+        continue;
+      }
+      limpos.push({top:r.top, cel});
+    }
+    for (const r of limpos) {           // a função vem da célula mesclada de EQUIPE
+      r.func = '';
+      for (let i = 0; i < labels.length; i++) {
+        const lo = i === 0 ? -1e9 : (labels[i-1].top + labels[i].top) / 2;
+        const hi = i === labels.length-1 ? 1e9 : (labels[i].top + labels[i+1].top) / 2;
+        if (r.top >= lo && r.top < hi) { r.func = labels[i].nome; break; }
+      }
+    }
+    saida.push({regional:b.regional, tipos:tp, linhas:limpos});
+  }
+
+  const iso = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+  const por = new Map();
+  for (const r of saida) for (const l of r.linhas) {
+    for (const [k, offs] of [['SEG',[0,1,2,3,4]], ['SAB',[5]], ['DOM',[6]]]) {
+      const {nome, marc} = l.cel[k];
+      if (!nome) continue;
+      let tipo = k === 'SEG' ? 'SOBREAVISO' : r.tipos[k];
+      if (marc) tipo = 'SOBREAVISO';                 // "(SOBREAVISO)" vence o cabeçalho
+      for (const o of offs) {
+        const dt = new Date(ini.getTime()); dt.setDate(dt.getDate() + o);
+        const ch = nome + '|' + iso(dt);
+        const it = por.get(ch) || {nome, data:iso(dt), tipos:new Set(), regionais:new Set(), funcoes:new Set()};
+        it.tipos.add(tipo);
+        if (r.regional) it.regionais.add(r.regional);
+        if (l.func) it.funcoes.add(l.func);
+        por.set(ch, it);
+      }
+    }
+  }
+  const registros = [...por.values()].map(it => ({
+    nome: it.nome, data: it.data,
+    tipo: it.tipos.has('PLANTAO') ? 'PLANTAO' : 'SOBREAVISO',   // PLANTÃO vence no conflito
+    conflito: it.tipos.size > 1,
+    regionais: [...it.regionais].sort(), funcoes: [...it.funcoes].sort(),
+  })).sort((a,b) => a.data.localeCompare(b.data) || a.nome.localeCompare(b.nome));
+  return {ini:iso(ini), fim:iso(fim), blocos:saida, registros, erros};
+}
+
+/* candidatos parecidos, por sobreposição de palavras do nome */
+function parecidos(nome, lista){
+  const A = new Set(normNome(nome).split(' ').filter(p => p.length > 2));
+  return lista.map(p => {
+    const B = new Set(normNome(p.nome).split(' ').filter(x => x.length > 2));
+    let c = 0; A.forEach(x => { if (B.has(x)) c++; });
+    return {p, s: c / Math.max(1, Math.max(A.size, B.size))};
+  }).filter(x => x.s >= 0.5).sort((a,b) => b.s - a.s).slice(0, 5).map(x => x.p);
+}
+
+async function importarEscala(arquivo){
+  modal(`<div class="md-h"><h2 style="margin:0">Importar escala</h2><button class="x-btn" data-close>×</button></div>
+         <div class="loading">Lendo o PDF…</div>`);
+  let R, nomes;
+  try {
+    const [pdfjsLib, lista] = await Promise.all([carregarPdfJs(), rpc('he_nomes', {p_token:S.token})]);
+    nomes = lista || [];
+    const buf = await arquivo.arrayBuffer();
+    const doc = await pdfjsLib.getDocument({data: new Uint8Array(buf)}).promise;
+    const paginas = [];
+    for (let p = 1; p <= doc.numPages; p++) {
+      const tc = await (await doc.getPage(p)).getTextContent();
+      paginas.push({itens: tc.items.map(i => ({t:i.str, x:i.transform[4], y:i.transform[5]}))});
+    }
+    R = parseEscala(paginas);
+  } catch(e){ return alertar('Não consegui ler o PDF: ' + e.message); }
+
+  if (!R.registros) return alertar(R.erros.join(' '));
+
+  const porNome = new Map(nomes.map(p => [normNome(p.nome), p]));
+  const pessoas = [...new Set(R.registros.map(r => r.nome))].sort().map(n => {
+    const achou = porNome.get(n);
+    return {nome:n, id: achou?.id || null, achou: achou?.nome || null, sug: achou ? [] : parecidos(n, nomes)};
+  });
+  S.escala = {R, pessoas, arquivo: arquivo.name, nomes};
+  telaEscala();
+}
+
+function telaEscala(){
+  const {R, pessoas, arquivo, nomes} = S.escala;
+  const semCasar = pessoas.filter(p => !p.id);
+  const dias = Array.from({length:7}, (_, k) => { const d = new Date(R.ini + 'T00:00:00'); d.setDate(d.getDate()+k);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; });
+  const mapa = new Map(R.registros.map(r => [r.nome + '|' + r.data, r]));
+  const conflitos = R.registros.filter(r => r.conflito);
+  const fmt = d => d.slice(8,10) + '/' + d.slice(5,7);
+
+  modal(`<div class="md-h"><h2 style="margin:0">Conferir escala antes de gravar</h2>
+      <button class="x-btn" data-close>×</button></div>
+    <p class="sub">Arquivo <b>${esc(arquivo)}</b> · semana <b>${fmt(R.ini)} a ${fmt(R.fim)}</b>
+      (do cabeçalho do PDF, não do nome do arquivo) · ${R.blocos.length} regionais ·
+      ${R.registros.length} registros de ${pessoas.length} pessoas</p>
+    ${R.erros.length ? `<div class="msg e">${R.erros.map(esc).join('<br>')}</div>` : ''}
+    ${semCasar.length ? `<div class="msg e"><b>${semCasar.length} nome(s) não encontrados no cadastro.</b>
+       Escolha a pessoa certa ou deixe em branco para pular:
+       ${semCasar.map((p, i) => `<div style="margin-top:6px">${esc(p.nome)} →
+         <select class="in esc-fix" data-n="${esc(p.nome)}" style="max-width:320px">
+           <option value="">— pular —</option>
+           ${p.sug.map(s => `<option value="${s.id}">${esc(s.nome)} (parecido)</option>`).join('')}
+           ${p.sug.length ? '<option disabled>──── todos os cadastrados ────</option>' : ''}
+           ${nomes.map(s => `<option value="${s.id}">${esc(s.nome)}</option>`).join('')}
+         </select></div>`).join('')}</div>` : ''}
+    ${conflitos.length ? `<div class="msg e" style="background:#fff8e1;color:#7a5900;border-color:#f0b429">
+       <b>${conflitos.length} pessoa(s) aparecem como PLANTÃO numa regional e SOBREAVISO em outra no mesmo dia.</b>
+       Vou gravar como <b>PLANTÃO</b>. Confira:
+       ${conflitos.map(c => `<div>• ${fmt(c.data)} — ${esc(c.nome)} (${c.regionais.map(esc).join(' + ')})</div>`).join('')}</div>` : ''}
+    <div class="sa-wrap"><table class="sa-t">
+      <thead><tr><th class="nm">Pessoa</th>${dias.map(d =>
+        `<th>${fmt(d)}<br>${DIA[new Date(d+'T00:00:00').getDay()][0].toUpperCase()}</th>`).join('')}</tr></thead>
+      <tbody>${pessoas.map(p => `<tr${p.id ? '' : ' style="background:#ffebee"'}>
+        <td class="nm">${esc(p.nome)}${p.id ? '' : ' <span class="tag t-no">sem cadastro</span>'}
+          ${p.achou && p.achou !== p.nome ? `<div class="sub">casou com ${esc(p.achou)}</div>` : ''}</td>
+        ${dias.map(d => { const r = mapa.get(p.nome + '|' + d);
+          if (!r) return '<td class="dd"></td>';
+          const pl = r.tipo === 'PLANTAO';
+          return `<td class="dd on" title="${esc(r.regionais.join(' + '))}${r.funcoes.length ? ' · ' + esc(r.funcoes.join(', ')) : ''}"
+                    style="${pl ? 'background:#ffe0b2' : ''}">${pl ? 'P' : '🌙'}${r.conflito ? '*' : ''}</td>`;
+        }).join('')}</tr>`).join('')}</tbody>
+    </table></div>
+    <p class="sub">🌙 sobreaviso · <b>P</b> plantão · <b>*</b> tipo em conflito entre regionais · passe o mouse para ver regional e função</p>
+    <div id="esc-m"></div>
+    <div class="row-h" style="margin-top:10px">
+      <button class="btn" data-close>Cancelar</button>
+      <button class="btn p" id="b-esc-ok"${R.erros.length ? ' disabled title="Corrija os erros do período antes de gravar"' : ''}>
+        Confirmar e gravar a semana</button>
+    </div>`);
+
+  document.querySelectorAll('.esc-fix').forEach(s => s.onchange = () => {
+    const p = S.escala.pessoas.find(x => x.nome === s.dataset.n);
+    if (p) { p.id = s.value || null; p.achou = s.value ? s.options[s.selectedIndex].text : null; }
+  });
+  if ($('b-esc-ok')) $('b-esc-ok').onclick = async () => {
+    const ids = new Map(S.escala.pessoas.filter(p => p.id).map(p => [p.nome, p.id]));
+    const linhas = R.registros.filter(r => ids.has(r.nome)).map(r => ({
+      pessoa_id: ids.get(r.nome), data: r.data, tipo: r.tipo,
+      regionais: r.regionais, funcoes: r.funcoes,
+    }));
+    if (!linhas.length) return msg('esc-m', 'Nenhuma pessoa casada — nada a gravar.');
+    const b = $('b-esc-ok'); busy(b, true); b.textContent = 'Gravando…';
+    try {
+      const r = await rpc('he_sobreaviso_importar', {p_token:S.token, p_semana_ini:R.ini,
+        p_semana_fim:R.fim, p_arquivo:arquivo, p_linhas:linhas});
+      fecharModal(); S.escala = null;
+      alertar(`Semana ${fmt(R.ini)} a ${fmt(R.fim)} gravada: ${r.gravadas} registros` +
+              (r.apagadas ? ` (substituiu ${r.apagadas} da importação anterior)` : '') +
+              (ids.size < pessoas.length ? `. ${pessoas.length - ids.size} pessoa(s) foram puladas por não ter cadastro.` : '.'));
+      await carregar();
+    } catch(e){ busy(b, false); b.textContent = 'Confirmar e gravar a semana'; msg('esc-m', e.message); }
+  };
+}
+
 async function vSobreaviso(){
   const marc = await rpc('he_sobreaviso_mes', {p_token:S.token, p_mes:mesData()});
   const on = new Set(marc.map(e => e.pessoa_id + '|' + e.data));
@@ -1082,6 +1356,15 @@ async function vSobreaviso(){
   const noites = p => { let n = 0; for (let i=1;i<=nd;i++) if (on.has(p.pessoa_id+'|'+dia(i))) n++; return n; };
   $('main').innerHTML = `
     ${barraFiltro(base)}
+    ${['admin','rh'].includes(S.eu.papel) ? `<div class="card">
+      <div class="row-h"><h2 style="margin:0">Importar escala do PDF</h2>
+        <span><input type="file" id="esc-pdf" accept="application/pdf,.pdf" style="display:none">
+          <button class="btn p s" id="b-esc-pdf">Escolher o PDF da semana</button></span></div>
+      <div class="expl">Suba o <b>"ESCALA E INFORMATIVO DE PLANTÃO"</b> da semana. A semana é lida do
+        <b>cabeçalho</b> do PDF (não do nome do arquivo, que às vezes diverge) e tem que ser de segunda a domingo.
+        Você confere tudo numa tela de pré-visualização antes de qualquer coisa ser gravada.
+        Reimportar a mesma semana <b>substitui</b> a importação anterior.</div>
+      <div id="esc-up"></div></div>` : ''}
     <div class="card"><h2>Escala de sobreaviso</h2>
       <div class="expl">Marque as <b>noites</b> em que cada pessoa fica de sobreaviso. A noite de um dia vai das 17:30 até as 07:30 do dia seguinte
         (ex.: marcar a segunda cobre de segunda 17:30 a terça 07:30). Fora do trabalho, essas horas valem 1/3 da hora base.
@@ -1106,6 +1389,12 @@ async function vSobreaviso(){
       <div id="sa-m"></div>
     </div>`;
   ligarFiltro(vSobreaviso);
+  if ($('b-esc-pdf')) {
+    $('b-esc-pdf').onclick = () => $('esc-pdf').click();
+    $('esc-pdf').onchange = e => { const f = e.target.files?.[0];
+      e.target.value = '';                       // permite subir o mesmo arquivo de novo
+      if (f) importarEscala(f).catch(err => msg('esc-up', err.message)); };
+  }
   $('sa-so').onchange = () => { S.saSo = $('sa-so').checked; vSobreaviso(); };
   $('sa-q').oninput = () => { const q = $('sa-q').value.toLowerCase();
     document.querySelectorAll('.sa-t tbody tr[data-n]').forEach(tr => tr.style.display = tr.dataset.n.includes(q) ? '' : 'none'); };
@@ -1240,6 +1529,249 @@ function vRH(){
     const suf = usaFiltro() && S.f.g !== 'TODOS' ? '_' + S.f.g.replace(/\s/g,'') + (S.f.g==='I9 MATRIZ'&&S.f.eng?'_ENG':'') : '';
     a.download = `fechamento_he_${S.mes}${suf}_${S.ordem}.csv`; a.click();
   };
+}
+
+/* ════ RH — BENEFÍCIOS EXTRAS (lanche, janta, VT extra) ════
+   Porte fiel da macro Atualizar_Beneficios_v2.bas, que é a regra validada pelo RH.
+   Conferido contra outubro/2026 (6.530 dias): zero divergência em lanche, janta,
+   regime do dia e VERIFICAR. A única diferença proposital é o casamento de nomes
+   normalizando acento — a macro usa UCase puro e por isso perdia o VT de quem tem
+   cedilha/acento no nome (Gildemar MENDONÇA, Alexandre MAGALHÃES, Jorge JOSÉ).
+   O ponto vem do he_rh_ponto_mes, onde 100% Diurna = Extras 100% − H.N. */
+const TP_SEM = 0, TP_ADM = 1, TP_TURNO = 2;
+const normNome = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+                        .replace(/\s+/g, ' ').trim().toUpperCase();
+const diaNum = d => Math.round(Date.parse(d + 'T00:00:00Z') / 86400000);
+const dow = d => new Date(d + 'T00:00:00').getDay();          // 0=dom, 6=sáb
+const hmm = m => m < 0 ? '' : String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+
+function paramsBen(cfg){
+  const n = (k, p) => { const v = parseFloat(cfg?.[k]); return isNaN(v) ? p : v; };
+  return {
+    valorRef:     n('valor_refeicao', 35.95),
+    minTurno:     n('min_turno_min', 630),       // 10h30
+    iniTurnoAte:  n('ini_turno_ate_min', 390),   // começa até 06:30
+    fimTurnoApos: n('fim_turno_apos_min', 1140), // termina depois das 19:00
+    janela:       n('janela_escala_dias', 7),
+    feriadoPagaVT: String(cfg?.feriado_escala_paga_vt) === 'true',
+  };
+}
+
+function tipoJornada(jor, P){
+  const ms = [...String(jor || '').matchAll(/(\d{1,2}):(\d{2})/g)].map(m => +m[1] * 60 + +m[2]);
+  if (ms.length < 2) return {tipo: TP_SEM, ini: -1, fim: -1};
+  const ini = ms[0], fim = ms[ms.length - 1];
+  let span = fim - ini; if (span <= 0) span += 1440;           // vira a meia-noite
+  const turno = fim <= ini || span >= P.minTurno || ini <= P.iniTurnoAte || fim > P.fimTurnoApos;
+  return {tipo: turno ? TP_TURNO : TP_ADM, ini, fim};
+}
+const paresBat = b => String(b || '').split(/\s+/).filter(Boolean)
+  .map(p => { const t = [...p.matchAll(/(\d{1,2}):(\d{2})/g)].map(m => +m[1] * 60 + +m[2]);
+              return t.length === 2 ? t : null; }).filter(Boolean);
+const trabMin = b => paresBat(b).reduce((s, [e, x]) => s + (x - e < 0 ? x - e + 1440 : x - e), 0);
+function batidaTurno(d, P){
+  if (d.trab >= P.minTurno) return true;
+  const seq = paresBat(d.b).flat();
+  return seq.some((v, i) => i > 0 && v < seq[i - 1]);          // virou a meia-noite
+}
+
+/* Apura um mês inteiro. Entra o array do he_rh_ponto_mes, sai uma linha por pessoa+dia. */
+function apurarBeneficios(dias, P){
+  const porPessoa = new Map();
+  dias.forEach(d => { if (!porPessoa.has(d.i)) porPessoa.set(d.i, []); porPessoa.get(d.i).push(d); });
+  const saida = [];
+  for (const [, ls] of porPessoa) {
+    const D = ls.map(x => {
+      const t = tipoJornada(x.j, P);
+      return {...x, trab: trabMin(x.b), tipo: t.tipo, jini: t.ini, jfim: t.fim, nd: diaNum(x.d)};
+    }).sort((a, b) => a.nd - b.nd);
+
+    D.forEach((d, i) => {
+      const tot = d.h52 + d.h75 + d.h100;                      // HE do dia, em minutos
+      const JOR = normNome(d.j), OBS = normNome(d.o);
+
+      let lanche = 0, janta = 0;
+      if (tot > 240) janta = P.valorRef;                       // > 4:00
+      else if (tot > 120) lanche = P.valorRef / 2;             // 2:01 a 4:00
+
+      const ehFds = dow(d.d) === 0 || dow(d.d) === 6;
+      const ehFolga = JOR.includes('FOLGA') || JOR.includes('FERIADO');
+      const ehFer = OBS.includes('FERIADO') || JOR.includes('FERIADO');
+      let vt = (ehFds || ehFolga || ehFer) && d.trab > 0 && d.mob ? 1 : 0;
+
+      // dia de TURNO mais próximo dentro da janela (para trás ou para frente)
+      let ref = '', melhor = 1e9;
+      D.forEach((o, j) => { if (j !== i && o.tipo === TP_TURNO) {
+        const dist = Math.abs(o.nd - d.nd);
+        if (dist <= P.janela && dist < melhor) { melhor = dist; ref = o.d.slice(8, 10) + '/' + o.d.slice(5, 7); }
+      }});
+      const batT = batidaTurno(d, P);
+      let regime = '', motivo = '', verificar = false, bloq = false;
+
+      if (d.tipo === TP_TURNO) {
+        regime = 'ESCALA';
+        motivo = 'Turno ' + hmm(d.jini) + '-' + hmm(d.jfim) + (d.jfim <= d.jini ? ' (noturno)' : '');
+        if (ehFds && d.trab > 0) {
+          bloq = vt === 1; vt = 0;
+          motivo += ': ' + (dow(d.d) === 6 ? 'sábado' : 'domingo') + ' é dia normal da escala — VT extra não conta';
+        } else if (ehFer && d.trab > 0 && !P.feriadoPagaVT) {
+          bloq = vt === 1; vt = 0;
+          motivo += ': feriado dentro da escala — VT extra não conta';
+        }
+        if (lanche + janta > 0) motivo += ' | HE real além do turno: ' + hmm(tot);
+      } else if (d.tipo === TP_SEM && !ehFolga && d.trab > 0 && batT && ref) {
+        regime = 'ESCALA (inferida)'; bloq = vt === 1; vt = 0;
+        motivo = 'Sem jornada no Quark; batidas de turno e escala em ' + ref + ' — tratado como dia da escala';
+      } else if (ref) {
+        if (ehFolga || d.tipo === TP_SEM) {
+          regime = 'FOLGA DA ESCALA';
+          if (d.trab > 0 && (lanche + janta + vt) > 0) { verificar = true;
+            motivo = 'VERIFICAR: folga trabalhada por colaborador em escala (turno em ' + ref +
+                     ') — confirme se não foi troca de plantão'; }
+        } else {
+          regime = 'ADM';
+          if (batT && (lanche + janta) > 0) { verificar = true;
+            motivo = 'VERIFICAR: jornada ADM no Quark, mas batidas de turno (' + hmm(d.trab) +
+                     ') e escala em ' + ref + ' — confirme se a HE não é turno não lançado no Quark'; }
+        }
+      } else {
+        regime = d.tipo === TP_ADM ? 'ADM' : ehFolga ? 'FOLGA' : 'SEM JORNADA';
+      }
+      if (ehFer && vt === 1 && !motivo) motivo = 'Feriado trabalhado — VT extra';
+
+      saida.push({...d, heTot: tot, lanche, janta, vt, regime, motivo, verificar, bloq});
+    });
+  }
+  return saida;
+}
+
+async function vRHBen(){
+  if (!S.ben || S.ben.mes !== S.mes) {
+    $('main').innerHTML = '<div class="loading">Apurando benefícios…</div>';
+    const [cru, cfg] = await Promise.all([
+      rpc('he_rh_ponto_mes', {p_token:S.token, p_mes:mesData()}),
+      rpc('he_params', {p_token:S.token}),
+    ]);
+    const P = paramsBen(cfg);
+    S.ben = {mes:S.mes, P, cfg, linhas: apurarBeneficios(cru || [], P)};
+  }
+  const {P, linhas} = S.ben;
+
+  // agrupa por pessoa, respeitando o filtro de grupo/setor da barra
+  const base = [...new Map(linhas.map(l => [l.i, {pessoa_id:l.i, nome:l.n, empresa:l.e, setor:l.s}])).values()];
+  const vis = new Set(filtrar(base).map(p => p.pessoa_id));
+  const porPessoa = new Map();
+  linhas.filter(l => vis.has(l.i)).forEach(l => {
+    const a = porPessoa.get(l.i) || {i:l.i, nome:l.n, empresa:l.e, setor:l.s, cpf:l.cpf,
+                                     lanche:0, janta:0, vt:0, vd:+l.vd, mob:l.mob, dias:[], verif:0};
+    a.lanche += l.lanche; a.janta += l.janta; a.vt += l.vt;
+    if (l.verificar) a.verif++;
+    a.dias.push(l);
+    porPessoa.set(l.i, a);
+  });
+  const pessoas = [...porPessoa.values()].map(a => ({...a, vtRs: a.vt * a.vd,
+                                                    total: a.lanche + a.janta + a.vt * a.vd}))
+                                         .sort((a, b) => a.nome.localeCompare(b.nome));
+  const comAlgo = pessoas.filter(p => p.total > 0 || p.verif);
+  const T = f => pessoas.reduce((s, p) => s + f(p), 0);
+  const nVerif = linhas.filter(l => l.verificar && vis.has(l.i)).length;
+  const semValor = pessoas.filter(p => p.mob && p.vt > 0 && !p.vd);
+  const mesExt = new Date(S.mes + '-15').toLocaleDateString('pt-BR', {month:'long', year:'numeric'});
+
+  $('main').innerHTML = `
+    ${barraFiltro(base)}
+    <div class="card">
+      <div class="row-h"><h2 style="margin:0">RH — Benefícios extras · ${mesExt}</h2>
+        <button class="btn s" id="b-ben-csv">Exportar para Excel</button></div>
+      <div class="expl">Apuração igual à da planilha do RH. <b>Lanche</b>: HE do dia entre 2:01 e 4:00 → metade da refeição.
+        <b>Janta</b>: HE acima de 4:00 → refeição inteira. <b>VT extra</b>: dia trabalhado em sábado, domingo, FOLGA ou feriado,
+        para quem tem auxílio mobilidade. Em dia de <b>escala/turno</b>, sábado, domingo e feriado são dia normal de trabalho
+        e <b>não</b> geram VT extra.</div>
+      <div class="sa-bar">
+        <label style="margin:0;font-size:13px">Valor da refeição
+          <input class="in" id="ben-vr" type="number" step="0.01" min="0" value="${P.valorRef.toFixed(2)}" style="width:110px">
+        </label>
+        <button class="btn s" id="b-ben-vr">Salvar valor</button>
+        <span class="sub" id="ben-vr-m"></span>
+      </div>
+      <div class="sts">
+        <div class="st"><div class="l">Lanche extra</div><div class="v">${brl(T(p => p.lanche))}</div></div>
+        <div class="st"><div class="l">Janta extra</div><div class="v">${brl(T(p => p.janta))}</div></div>
+        <div class="st"><div class="l">VT extra</div><div class="v">${T(p => p.vt)} <span class="sub">dias</span></div></div>
+        <div class="st"><div class="l">VT extra (R$)</div><div class="v">${brl(T(p => p.vtRs))}</div></div>
+        <div class="st"><div class="l">Total</div><div class="v plus">${brl(T(p => p.total))}</div></div>
+      </div>
+      ${nVerif ? `<div class="msg e" style="margin-top:10px">⚠️ ${nVerif} dia(s) marcado(s) como <b>VERIFICAR</b> — os benefícios
+        <b>não</b> foram zerados, só destacados. Abra a pessoa para ver o motivo.</div>` : ''}
+      ${semValor.length ? `<div class="msg e" style="margin-top:10px">⚠️ ${semValor.length} pessoa(s) com auxílio mobilidade e VT apurado,
+        mas <b>sem valor por dia</b> no cadastro — o VT sai R$ 0,00: ${semValor.map(p => esc(p.nome)).join(', ')}</div>` : ''}
+    </div>
+    <div class="card">
+      <h2>Por colaborador (${comAlgo.length})</h2>
+      <table class="t">
+        <thead><tr><th class="nm">Colaborador</th><th>Lanche</th><th>Janta</th><th>VT qtd</th><th>VT R$</th><th>Total</th><th></th></tr></thead>
+        <tbody>${comAlgo.map(p => `<tr class="ben-l" data-p="${p.i}" style="cursor:pointer">
+            <td class="nm" data-l="Colaborador">${esc(p.nome)}${p.verif ? ` <span class="tag t-no">${p.verif} verificar</span>` : ''}
+              <div class="sub">${esc(p.setor || '')}${p.mob ? ' · mobilidade' : ''}</div></td>
+            <td data-l="Lanche">${p.lanche ? brl(p.lanche) : '—'}</td>
+            <td data-l="Janta">${p.janta ? brl(p.janta) : '—'}</td>
+            <td data-l="VT qtd">${p.vt || '—'}</td>
+            <td data-l="VT R$">${p.vtRs ? brl(p.vtRs) : '—'}</td>
+            <td data-l="Total"><b>${brl(p.total)}</b></td>
+            <td class="sub">ver dias ›</td></tr>`).join('')
+          || '<tr><td class="nm muted" style="padding:12px">Ninguém com benefício extra neste mês.</td></tr>'}</tbody>
+      </table>
+    </div>`;
+  ligarFiltro(vRHBen);
+
+  $('b-ben-vr').onclick = async () => {
+    const v = parseFloat($('ben-vr').value);
+    if (!(v > 0)) return msg('ben-vr-m', 'Valor inválido.');
+    try {
+      await rpc('he_config_set', {p_token:S.token, p_chave:'valor_refeicao', p_valor:v.toFixed(2)});
+      S.ben = null; await vRHBen();
+    } catch(e){ msg('ben-vr-m', e.message); }
+  };
+  document.querySelectorAll('.ben-l').forEach(tr => tr.onclick = () => detalheBen(porPessoa.get(tr.dataset.p)));
+  $('b-ben-csv').onclick = () => exportarBen(pessoas, mesExt);
+}
+
+function detalheBen(p){
+  const dias = [...p.dias].sort((a, b) => a.d.localeCompare(b.d))
+                          .filter(d => d.heTot > 0 || d.vt || d.verificar || d.regime.startsWith('ESCALA'));
+  modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
+    <p class="sub">Lanche ${brl(p.lanche)} · Janta ${brl(p.janta)} · VT ${p.vt} dia(s) = ${brl(p.vt * p.vd)}
+      ${p.mob ? `· auxílio mobilidade R$ ${fmtF(p.vd)}/dia` : '· <b>sem</b> auxílio mobilidade'}</p>
+    <div class="sa-wrap"><table class="t">
+      <thead><tr><th>Dia</th><th>Jornada</th><th>Batidas</th><th>HE</th><th>Trab.</th>
+        <th>Lanche</th><th>Janta</th><th>VT</th><th>Regime do dia</th><th>Análise</th></tr></thead>
+      <tbody>${dias.map(d => `<tr${d.verificar ? ' style="background:#fff8e1"' : ''}>
+          <td>${d.d.slice(8,10)}/${d.d.slice(5,7)} <span class="sub">${DIA[dow(d.d)]}</span></td>
+          <td class="sub">${esc(d.j || '—')}</td>
+          <td class="sub">${esc(d.b || '—')}</td>
+          <td>${d.heTot ? hm(d.heTot) : '—'}</td>
+          <td>${d.trab ? hm(d.trab) : '—'}</td>
+          <td>${d.lanche ? brl(d.lanche) : ''}</td>
+          <td>${d.janta ? brl(d.janta) : ''}</td>
+          <td>${d.vt ? '1' : d.bloq ? '<span class="sub">bloqueado</span>' : ''}</td>
+          <td>${esc(d.regime)}</td>
+          <td class="sub">${esc(d.motivo)}</td></tr>`).join('')
+        || '<tr><td class="muted" style="padding:12px">Nenhum dia com HE, VT ou escala.</td></tr>'}</tbody>
+    </table></div>`);
+}
+
+/* CSV no mesmo layout da aba "Benefícios A PAGAR" da planilha do RH */
+function exportarBen(pessoas, mesExt){
+  const h = ['COLABORADOR', 'CPF', 'R$ EXTRA LANCHE (2:01 ATE 4:00)', 'R$ EXTRA JANTA (4:01 +)',
+             'R$ REFEIÇÃO EXTRA (SAB, DOM, FOLGA E FERIADO)', 'QTD VT EXTRA (SAB, DOM, FOLGA E FERIADO)',
+             'TOTAL VT', 'TOTAL DE VR EXTRA', 'Total Benefícios'];
+  const r2 = v => (v || 0).toFixed(2).replace('.', ',');
+  const L = pessoas.map(p => [p.nome, p.cpf || '', r2(p.lanche), r2(p.janta), r2(0),
+                              p.vt, r2(p.vtRs), r2(p.lanche + p.janta), r2(p.total)]);
+  const csv = '﻿' + [h, ...L].map(l => l.map(x => `"${String(x).replace(/"/g, '""')}"`).join(';')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = `beneficios_extras_${S.mes}.csv`; a.click();
 }
 
 /* ════ CADASTROS ════ */

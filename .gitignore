@@ -1,0 +1,15 @@
+# Credenciais — nunca versionar
+.env
+.env.local
+*.key
+
+# Relatórios e planilhas de insumo (ficam na pasta compartilhada, não no site)
+*.xls
+*.xlsx
+*.xlsm
+*.pdf
+
+# Lixo do sistema
+Thumbs.db
+desktop.ini
+.DS_Store
