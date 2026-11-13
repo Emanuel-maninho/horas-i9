@@ -163,6 +163,9 @@ th.l,td.l{text-align:left}
 tr.click,th.click{cursor:pointer}
 tr.click:hover td{background:#FAFAFA}
 tfoot td{font-weight:700;border-top:2px solid var(--line)}
+.sync{font-size:12px;color:var(--ink3);margin:10px 0 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.sync b{color:var(--ink2);font-weight:600}
+.sync .velho{color:var(--red);font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 
 .pend{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
@@ -312,6 +315,7 @@ tr.grp td span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--
     </div>
   </div></div>
   <div class="tabs"><div class="tabs-in" id="tabs"></div></div>
+  <div class="wrap" style="padding-bottom:0"><div id="sync" class="sync"></div></div>
   <div class="wrap" id="main"></div>
 </div>
 
@@ -531,6 +535,28 @@ async function iniciar(){
   S.tab = S.tab && tabs.some(t=>t[0]===S.tab) ? S.tab : (S.eu.papel==='colaborador' ? 'minhas' : tabs[1]?.[0] || 'minhas');
   await carregar();
 }
+/* ── "ponto atualizado em…" logo abaixo das abas ──
+   O ponto vem do Quark pela rotina automática; esta linha existe para ninguém
+   olhar um número velho achando que é de agora. */
+async function pintarSync(){
+  const el = $('sync'); if (!el) return;
+  let d;
+  try { d = await rpc('he_sync_info', {p_token:S.token}); } catch(e){ el.innerHTML = ''; return; }
+  if (!d || !d.importado_em) { el.innerHTML = '<span>Ponto ainda não importado.</span>'; return; }
+  const q = new Date(d.importado_em), ag = new Date();
+  const horas = (ag - q) / 36e5;
+  const quando = q.toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  const atraso = horas < 1 ? 'agora há pouco'
+    : horas < 24 ? 'há ' + Math.round(horas) + 'h'
+    : 'há ' + Math.round(horas / 24) + ' dia(s)';
+  // o Quark é carregado em dias úteis; mais de ~3 dias sem carga merece atenção
+  const velho = horas > 72;
+  el.innerHTML = `<span>Ponto atualizado em <b>${esc(quando)}</b>
+      <span class="${velho ? 'velho' : ''}">(${atraso})</span></span>
+    ${d.ultimo_dia ? `<span>· último dia com marcação: <b>${d.ultimo_dia.slice(8,10)}/${d.ultimo_dia.slice(5,7)}</b></span>` : ''}
+    ${velho ? '<span class="velho">· confira se a rotina automática rodou</span>' : ''}`;
+}
+
 function pintarAbas(){
   $('tabs').innerHTML = S.tabs.map(([k,t]) => {
     let n = '';
@@ -554,6 +580,7 @@ async function carregar(){
       S.nPendCad = ps.filter(p=>p.status==='pendente').length;
     }
     pintarAbas();
+    pintarSync();
     document.body.classList.toggle('largo', ['rh','cad','rhb','pend'].includes(S.tab));
     if (S.tab === 'minhas') await vMinhas();
     else if (S.tab === 'equipe') vEquipe();
