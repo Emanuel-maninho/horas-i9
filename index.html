@@ -521,6 +521,7 @@ async function iniciar(){
   const tabs = [['minhas','Minhas horas']];
   if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
   if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['sa','Sobreaviso']);
+  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['pend','Pendências']);
   if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
   if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rhb','Benefícios extras']);
   if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['av','Avisos']);
@@ -553,11 +554,12 @@ async function carregar(){
       S.nPendCad = ps.filter(p=>p.status==='pendente').length;
     }
     pintarAbas();
-    document.body.classList.toggle('largo', S.tab === 'rh' || S.tab === 'cad' || S.tab === 'rhb');
+    document.body.classList.toggle('largo', ['rh','cad','rhb','pend'].includes(S.tab));
     if (S.tab === 'minhas') await vMinhas();
     else if (S.tab === 'equipe') vEquipe();
     else if (S.tab === 'rh') vRH();
     else if (S.tab === 'rhb') await vRHBen();
+    else if (S.tab === 'pend') await vPendencias();
     else if (S.tab === 'cad') await vCad();
     else if (S.tab === 'sa') await vSobreaviso();
     else if (S.tab === 'av') await vAvisos();
@@ -1055,6 +1057,55 @@ function manualHTML(papel){
         <li><b>Avisos:</b> escolha o que entra (${T('Ponto incompleto','t-inc')}, Top em horas extras, ${T('HE sem autorização','t-no')}, ${T('Auditar Quark','t-aud')}) e o app monta uma mensagem para cada superior imediato com o bloco da equipe dele. Revise o texto e use ${B('Enviar no WhatsApp','p')} ou ${B('Copiar')}. Valores em R$ nunca entram na mensagem.</li>
         <li>Marque várias pessoas na lista para aplicar a mesma função ou o mesmo superior de uma vez.</li></ul>`, false, 'RH / Admin'),
   );
+  if (lider || rh) partes.push(sec('Pendências de ponto', `
+    <p>A aba <b>Pendências</b> mostra o que precisa ser acertado no Quark antes do fechamento,
+      a tempo de você resolver com o colaborador.</p>
+    <ul><li>É avaliado <b>todo dia</b>, depois da carga do ponto, sobre os <b>últimos 7 dias já fechados</b> —
+        o dia de hoje nunca entra, porque ainda está acontecendo.</li>
+      <li>Enquanto a pendência continuar no Quark, ela é <b>cobrada de novo a cada dia</b>, e a coluna
+        <i>Cobranças</i> mostra quantas vezes já foi.</li>
+      <li>Quando a correção é feita no Quark, ela passa sozinha para ${T('resolvida','t-ok')} no dia seguinte.</li>
+      <li>Depois de <b>5 dias úteis</b> sem acerto vira ${T('expirada','t-no')}: para de cobrar, mas
+        <b>continua no histórico</b> — nada é apagado.</li></ul>
+    <table><tr><th>Tipo</th><th>O que significa</th></tr>
+      <tr><td>Falta sem justificativa</td><td>Tinha jornada prevista, não houve nenhuma batida e não há observação nem abono.</td></tr>
+      <tr><td>Sem entrada</td><td>Jornada prevista e nenhuma batida, mas existe alguma observação no Quark.</td></tr>
+      <tr><td>Batida incompleta</td><td>Falta o par de alguma batida, ou há menos batidas do que a jornada pede.</td></tr>
+      <tr><td>HE não autorizada</td><td>O Quark apurou hora extra e não existe autorização registrada aqui.</td></tr></table>
+    <div class="dica"><b>O que não gera pendência:</b> FOLGA, férias, afastamento, abono, feriado sem trabalho
+      e dias de sobreaviso sem acionamento.</div>`, false, lider ? 'Líder / RH' : 'RH / Admin'));
+
+  if (rh) partes.push(sec('Escala de sobreaviso pelo PDF', `
+    <p>Na aba <b>Sobreaviso</b>, o botão ${B('Escolher o PDF da semana','p')} importa o arquivo
+      <b>"ESCALA E INFORMATIVO DE PLANTÃO"</b> direto, sem digitar nada.</p>
+    <ol><li>Escolha o PDF. A semana é lida do <b>cabeçalho do arquivo</b>, não do nome —
+        eles às vezes divergem, e o cabeçalho é que vale.</li>
+      <li>Confira a <b>pré-visualização</b>: pessoa por dia, 🌙 para sobreaviso e <b>P</b> para plantão.
+        Passe o mouse para ver regional e função.</li>
+      <li>Nomes que não baterem com o cadastro aparecem <b>destacados</b>, com sugestões para você escolher.
+        Quem ficar em branco é pulado.</li>
+      <li>Só depois de ${B('Confirmar e gravar a semana','p')} alguma coisa é gravada.</li></ol>
+    <ul><li>Quem aparece em <b>mais de uma regional</b> no mesmo dia vira <b>um registro só</b>, juntando as regionais.</li>
+      <li>Nome seguido de <i>(SOBREAVISO)</i> dentro da coluna de plantão conta como sobreaviso.</li>
+      <li><b>Reimportar a mesma semana substitui</b> a importação anterior — pode subir uma versão corrigida à vontade.</li></ul>`,
+    false, 'RH / Admin'));
+
+  if (rh) partes.push(sec('Benefícios extras (lanche, janta e VT)', `
+    <p>A aba <b>Benefícios extras</b> faz a mesma apuração da planilha do RH, direto do ponto.</p>
+    <table><tr><th>Benefício</th><th>Regra</th></tr>
+      <tr><td>Lanche extra</td><td>HE do dia entre <b>2:01 e 4:00</b> → metade do valor da refeição.</td></tr>
+      <tr><td>Janta extra</td><td>HE do dia acima de <b>4:00</b> → valor cheio da refeição.</td></tr>
+      <tr><td>VT extra</td><td>Dia trabalhado em <b>sábado, domingo, FOLGA ou feriado</b>, para quem tem
+        <b>auxílio mobilidade</b>. Vale quantidade × valor por dia do colaborador.</td></tr></table>
+    <ul><li><b>Regime de escala, dia a dia:</b> em dia de turno, sábado, domingo e feriado são dia normal de
+        trabalho e <b>não</b> geram VT extra. Lanche e janta continuam valendo pela HE do Quark.</li>
+      <li>Dias marcados ${T('verificar','t-no')} são só um alerta para conferência (folga trabalhada por quem está
+        em escala, ou jornada administrativa com batida de turno). <b>O benefício não é zerado.</b></li>
+      <li>Clique no colaborador para ver <b>dia a dia</b>, com o regime e o motivo.</li>
+      <li>O <b>valor da refeição</b> é editável no alto da tela.</li>
+      <li>${B('Exportar para Excel')} gera o arquivo no mesmo layout da aba <i>Benefícios A PAGAR</i>.</li></ul>`,
+    false, 'RH / Admin'));
+
   partes.push(sec('Cuidados e dúvidas', `
     <ul><li><b>Seu PIN é só seu.</b> Não passe para ninguém, nem para o superior.</li>
       <li><b>Convite é pessoal.</b> Não encaminhe em grupo.</li>
@@ -1531,6 +1582,85 @@ function vRH(){
   };
 }
 
+/* ════ PENDÊNCIAS DE PONTO (etapa B) ════
+   O log vive em he_alerta_ponto, alimentado pela rotina diária depois do sync.
+   Aqui é só a leitura: pendências abertas do time + histórico com filtros. */
+const TIPO_PEND = {
+  SEM_ENTRADA:             {rot:'Sem entrada',            ex:'Tem jornada prevista e nenhuma batida, mas há observação no Quark.'},
+  BATIDA_INCOMPLETA:       {rot:'Batida incompleta',      ex:'Falta o par de alguma batida, ou há menos batidas do que a jornada pede.'},
+  FALTA_SEM_JUSTIFICATIVA: {rot:'Falta sem justificativa', ex:'Jornada prevista, nenhuma batida e nenhuma observação ou abono.'},
+  HE_NAO_AUTORIZADA:       {rot:'HE não autorizada',      ex:'O Quark apurou hora extra e não existe autorização registrada aqui.'},
+};
+const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'};
+
+async function vPendencias(){
+  const f = S.pend_f = S.pend_f || {status:'ABERTO', tipo:'', sup:'', de:'', ate:''};
+  const lista = await rpc('he_alertas', {p_token:S.token, p_status:f.status || 'TODOS',
+    p_tipo:f.tipo || null, p_de:f.de || null, p_ate:f.ate || null, p_supervisor:f.sup || null}) || [];
+
+  const sups = [...new Map(lista.filter(a => a.supervisor_id)
+    .map(a => [a.supervisor_id, a.supervisor])).entries()].sort((a,b) => a[1].localeCompare(b[1]));
+  // agrupa por colaborador
+  const porP = new Map();
+  lista.forEach(a => { const g = porP.get(a.pessoa_id) || {nome:a.nome, setor:a.setor, sup:a.supervisor, itens:[]};
+                       g.itens.push(a); porP.set(a.pessoa_id, g); });
+  const grupos = [...porP.values()].sort((a,b) =>
+    (b.itens.filter(i => i.status==='ABERTO').length - a.itens.filter(i => i.status==='ABERTO').length)
+    || a.nome.localeCompare(b.nome));
+  const conta = t => lista.filter(a => a.tipo === t).length;
+  const sel = (id, val, ops) => `<select class="in pend-f" id="${id}">${ops.map(([v,r]) =>
+    `<option value="${v}"${String(val)===String(v)?' selected':''}>${esc(r)}</option>`).join('')}</select>`;
+
+  $('main').innerHTML = `
+    <div class="card">
+      <h2>Pendências de ponto do meu time</h2>
+      <div class="expl">Avaliado todo dia, depois da carga do ponto, sobre os <b>últimos 7 dias já fechados</b>
+        (o dia de hoje nunca entra). Enquanto a pendência continuar no Quark ela é <b>cobrada de novo</b> a cada dia.
+        Depois de <b>5 dias úteis</b> sem acerto ela é marcada como expirada e para de cobrar — mas
+        <b>fica no histórico</b>. FOLGA, férias, afastamento, abono e dias com acionamento de sobreaviso
+        não geram pendência.</div>
+      <div class="sa-bar">
+        ${sel('pf-st', f.status, [['ABERTO','Em aberto'],['RESOLVIDO','Resolvidas'],['EXPIRADO','Expiradas'],['TODOS','Todas']])}
+        ${sel('pf-tp', f.tipo, [['','Todos os tipos'], ...Object.entries(TIPO_PEND).map(([k,v]) => [k, v.rot])])}
+        ${sups.length ? sel('pf-sup', f.sup, [['','Todos os supervisores'], ...sups]) : ''}
+        <span style="font-size:13px">de</span><input class="in pend-f" type="date" id="pf-de" value="${f.de}">
+        <span style="font-size:13px">até</span><input class="in pend-f" type="date" id="pf-ate" value="${f.ate}">
+        ${f.de||f.ate||f.tipo||f.sup||f.status!=='ABERTO' ? '<button class="btn s" id="pf-lmp">Limpar filtros</button>' : ''}
+      </div>
+      <div class="kpis">
+        ${Object.entries(TIPO_PEND).map(([k,v]) =>
+          `<div class="st"><div class="l">${v.rot}</div><div class="v">${conta(k)}</div></div>`).join('')}
+        <div class="st"><div class="l">Colaboradores</div><div class="v">${grupos.length}</div></div>
+      </div>
+    </div>
+    ${grupos.length ? grupos.map(g => {
+      const ab = g.itens.filter(i => i.status==='ABERTO');
+      return `<div class="card">
+        <div class="row-h"><h2 style="margin:0;font-size:16px">${esc(g.nome)}
+            ${ab.length ? `<span class="n">${ab.length}</span>` : ''}</h2>
+          <span class="sub">${esc(g.setor||'')}${g.sup ? ' · supervisor: ' + esc(g.sup) : ' · <b>sem supervisor no cadastro</b>'}</span></div>
+        <table class="t">
+          <thead><tr><th>Dia</th><th>Tipo</th><th>Situação</th><th>Aberta há</th><th>Cobranças</th><th>Detalhe</th></tr></thead>
+          <tbody>${g.itens.sort((a,b) => b.data.localeCompare(a.data)).map(a => `<tr${
+              a.status==='ABERTO' && a.dias_uteis_aberto >= 4 ? ' style="background:#fff8e1"' : ''}>
+            <td data-l="Dia">${a.data.slice(8,10)}/${a.data.slice(5,7)}
+              <span class="sub">${DIA[new Date(a.data+'T00:00:00').getDay()]}</span></td>
+            <td data-l="Tipo" title="${esc(TIPO_PEND[a.tipo]?.ex||'')}">${esc(TIPO_PEND[a.tipo]?.rot || a.tipo)}</td>
+            <td data-l="Situação"><span class="tag ${a.status==='ABERTO'?'t-no':a.status==='RESOLVIDO'?'t-ok':''}">${ST_PEND[a.status]||a.status}</span></td>
+            <td data-l="Aberta há">${a.status==='ABERTO' ? a.dias_uteis_aberto + ' dia(s) útil(eis)' :
+              a.resolvido_em ? '<span class="sub">resolvida em ' + fmtD(a.resolvido_em) + '</span>' : '—'}</td>
+            <td data-l="Cobranças">${a.qtd_cobrancas}×</td>
+            <td data-l="Detalhe" class="sub">${esc(a.detalhe||'')}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+    }).join('') : `<div class="card"><div class="msg o">Nenhuma pendência com esses filtros. 👏</div></div>`}`;
+
+  const aplica = () => { S.pend_f = {status:$('pf-st').value, tipo:$('pf-tp').value,
+    sup: $('pf-sup') ? $('pf-sup').value : '', de:$('pf-de').value, ate:$('pf-ate').value}; vPendencias(); };
+  document.querySelectorAll('.pend-f').forEach(e => e.onchange = aplica);
+  if ($('pf-lmp')) $('pf-lmp').onclick = () => { S.pend_f = null; vPendencias(); };
+}
+const fmtD = s => s ? new Date(s).toLocaleDateString('pt-BR') : '';
+
 /* ════ RH — BENEFÍCIOS EXTRAS (lanche, janta, VT extra) ════
    Porte fiel da macro Atualizar_Beneficios_v2.bas, que é a regra validada pelo RH.
    Conferido contra outubro/2026 (6.530 dias): zero divergência em lanche, janta,
@@ -1694,7 +1824,7 @@ async function vRHBen(){
         <button class="btn s" id="b-ben-vr">Salvar valor</button>
         <span class="sub" id="ben-vr-m"></span>
       </div>
-      <div class="sts">
+      <div class="kpis">
         <div class="st"><div class="l">Lanche extra</div><div class="v">${brl(T(p => p.lanche))}</div></div>
         <div class="st"><div class="l">Janta extra</div><div class="v">${brl(T(p => p.janta))}</div></div>
         <div class="st"><div class="l">VT extra</div><div class="v">${T(p => p.vt)} <span class="sub">dias</span></div></div>
