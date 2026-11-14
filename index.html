@@ -163,9 +163,12 @@ th.l,td.l{text-align:left}
 tr.click,th.click{cursor:pointer}
 tr.click:hover td{background:#FAFAFA}
 tfoot td{font-weight:700;border-top:2px solid var(--line)}
-.sync{font-size:12px;color:var(--ink3);margin:10px 0 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.sync b{color:var(--ink2);font-weight:600}
-.sync .velho{color:var(--red);font-weight:600}
+.sync{display:flex;flex-direction:column;line-height:1.25;text-align:right;font-size:11px;color:#cfd3d8;cursor:help;margin-right:4px}
+.sync .r1{font-size:12px;color:#fff}
+.sync .r1 b{font-weight:700}
+.sync .r2{opacity:.8}
+.sync.velho .r1,.sync.velho .r2{color:#ffb4ab}
+@media(max-width:640px){.sync{display:none}}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
 
 .pend{border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:10px}
@@ -309,13 +312,13 @@ tr.grp td span{font-weight:500;text-transform:none;letter-spacing:0;color:var(--
     <div class="logo">i9</div>
     <div class="top-t"><b id="u-nome">—</b><span id="u-papel">—</span></div>
     <div class="top-a">
+      <span id="sync" class="sync"></span>
       <input type="month" id="mes" aria-label="Mês">
       <button class="lnk" id="b-pin">PIN</button>
       <button class="lnk" id="b-sair">Sair</button>
     </div>
   </div></div>
   <div class="tabs"><div class="tabs-in" id="tabs"></div></div>
-  <div class="wrap" style="padding-bottom:0"><div id="sync" class="sync"></div></div>
   <div class="wrap" id="main"></div>
 </div>
 
@@ -551,10 +554,14 @@ async function pintarSync(){
     : 'há ' + Math.round(horas / 24) + ' dia(s)';
   // o Quark é carregado em dias úteis; mais de ~3 dias sem carga merece atenção
   const velho = horas > 72;
-  el.innerHTML = `<span>Ponto atualizado em <b>${esc(quando)}</b>
-      <span class="${velho ? 'velho' : ''}">(${atraso})</span></span>
-    ${d.ultimo_dia ? `<span>· último dia com marcação: <b>${d.ultimo_dia.slice(8,10)}/${d.ultimo_dia.slice(5,7)}</b></span>` : ''}
-    ${velho ? '<span class="velho">· confira se a rotina automática rodou</span>' : ''}`;
+  const dia = d.ultimo_dia ? d.ultimo_dia.slice(8,10) + '/' + d.ultimo_dia.slice(5,7) : '—';
+  el.className = 'sync' + (velho ? ' velho' : '');
+  el.title = `O ponto deste app vem do Quark. Última carga: ${quando} (${atraso}).\n`
+    + `Último dia com marcação importada: ${dia}.\n`
+    + (velho ? 'Faz mais de 3 dias — confira se a rotina automática rodou antes de comparar com o Quark.'
+             : 'Comparando com o Quark, qualquer batida lançada depois deste horário ainda não está aqui.');
+  el.innerHTML = `<span class="r1">ponto até <b>${dia}</b></span>`
+    + `<span class="r2">sincronizado ${esc(quando)}${velho ? ' ⚠' : ''}</span>`;
 }
 
 function pintarAbas(){
@@ -1622,9 +1629,16 @@ const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'}
 
 async function vPendencias(){
   const f = S.pend_f = S.pend_f || {status:'ABERTO', tipo:'', sup:'', de:'', ate:''};
-  const lista = await rpc('he_alertas', {p_token:S.token, p_status:f.status || 'TODOS',
-    p_tipo:f.tipo || null, p_de:f.de || null, p_ate:f.ate || null, p_supervisor:f.sup || null}) || [];
+  const chefe = S.eu.papel === 'admin' || S.eu.papel === 'rh';
+  let [lista, resumo] = await Promise.all([
+    rpc('he_alertas', {p_token:S.token, p_status:f.status || 'TODOS',
+      p_tipo:f.tipo || null, p_de:f.de || null, p_ate:f.ate || null, p_supervisor:f.sup || null}),
+    // só quem vê a operação inteira precisa do placar por supervisor
+    chefe ? rpc('he_alertas_resumo', {p_token:S.token, p_de:f.de || null, p_ate:f.ate || null})
+          : Promise.resolve(null),
+  ]);
 
+  lista = lista || [];
   const sups = [...new Map(lista.filter(a => a.supervisor_id)
     .map(a => [a.supervisor_id, a.supervisor])).entries()].sort((a,b) => a[1].localeCompare(b[1]));
   // agrupa por colaborador
@@ -1660,13 +1674,35 @@ async function vPendencias(){
         <div class="st"><div class="l">Colaboradores</div><div class="v">${grupos.length}</div></div>
       </div>
     </div>
+    ${resumo && resumo.length ? `<div class="card">
+      <h2>Placar por supervisor</h2>
+      <div class="expl">Quem está resolvendo e quem está deixando apodrecer. <b>Expiradas</b> é o número que
+        interessa: são pendências que foram cobradas todo dia por 5 dias úteis e <b>ninguém mexeu</b>.
+        <b>A expirar</b> é o que vence em 1 dia — ainda dá tempo. Últimos 60 dias, ou o período que você filtrar.
+        Clique na linha para ver só as dessa pessoa.</div>
+      <table class="resp">
+        <thead><tr><th class="l">Supervisor</th><th>Abertas</th><th>A expirar</th>
+          <th>Expiradas</th><th>Resolvidas</th><th>Colaboradores</th><th>Mais cobrada</th></tr></thead>
+        <tbody>${resumo.map(r => `<tr class="pend-s" data-s="${r.supervisor_id || ''}"
+            style="cursor:pointer${r.expiradas > 0 ? ';background:#ffebee' : ''}">
+          <td class="l" data-l="Supervisor">${esc(r.supervisor)}</td>
+          <td data-l="Abertas">${r.abertas || '—'}</td>
+          <td data-l="A expirar">${r.a_expirar ? `<span class="tag t-no">${r.a_expirar}</span>` : '—'}</td>
+          <td data-l="Expiradas"><b${r.expiradas ? ' style="color:var(--red)"' : ''}>${r.expiradas || '—'}</b></td>
+          <td data-l="Resolvidas">${r.resolvidas ? `<span class="tag t-ok">${r.resolvidas}</span>` : '—'}</td>
+          <td data-l="Colaboradores">${r.colaboradores}</td>
+          <td data-l="Mais cobrada">${r.pior_cobranca ? r.pior_cobranca + '×' : '—'}</td></tr>`).join('')}</tbody>
+      </table>
+      <p class="sub" style="margin-top:8px">Linha <b>(sem supervisor cadastrado)</b>: esses colaboradores não têm
+        superior na aba Cadastros, então ninguém é cobrado por eles.</p>
+    </div>` : ''}
     ${grupos.length ? grupos.map(g => {
       const ab = g.itens.filter(i => i.status==='ABERTO');
       return `<div class="card">
         <div class="row-h"><h2 style="margin:0;font-size:16px">${esc(g.nome)}
             ${ab.length ? `<span class="n">${ab.length}</span>` : ''}</h2>
           <span class="sub">${esc(g.setor||'')}${g.sup ? ' · supervisor: ' + esc(g.sup) : ' · <b>sem supervisor no cadastro</b>'}</span></div>
-        <table class="t">
+        <table class="resp">
           <thead><tr><th>Dia</th><th>Tipo</th><th>Situação</th><th>Aberta há</th><th>Cobranças</th><th>Detalhe</th></tr></thead>
           <tbody>${g.itens.sort((a,b) => b.data.localeCompare(a.data)).map(a => `<tr${
               a.status==='ABERTO' && a.dias_uteis_aberto >= 4 ? ' style="background:#fff8e1"' : ''}>
@@ -1685,6 +1721,12 @@ async function vPendencias(){
     sup: $('pf-sup') ? $('pf-sup').value : '', de:$('pf-de').value, ate:$('pf-ate').value}; vPendencias(); };
   document.querySelectorAll('.pend-f').forEach(e => e.onchange = aplica);
   if ($('pf-lmp')) $('pf-lmp').onclick = () => { S.pend_f = null; vPendencias(); };
+  // clicar no placar filtra pelas pendências daquele supervisor, em qualquer situação
+  document.querySelectorAll('.pend-s').forEach(tr => tr.onclick = () => {
+    if (!tr.dataset.s) return;                       // "(sem supervisor cadastrado)" não filtra
+    S.pend_f = {...f, sup: tr.dataset.s, status: 'TODOS'};
+    vPendencias();
+  });
 }
 const fmtD = s => s ? new Date(s).toLocaleDateString('pt-BR') : '';
 
@@ -1865,10 +1907,10 @@ async function vRHBen(){
     </div>
     <div class="card">
       <h2>Por colaborador (${comAlgo.length})</h2>
-      <table class="t">
-        <thead><tr><th class="nm">Colaborador</th><th>Lanche</th><th>Janta</th><th>VT qtd</th><th>VT R$</th><th>Total</th><th></th></tr></thead>
+      <table class="resp">
+        <thead><tr><th class="l">Colaborador</th><th>Lanche</th><th>Janta</th><th>VT qtd</th><th>VT R$</th><th>Total</th><th></th></tr></thead>
         <tbody>${comAlgo.map(p => `<tr class="ben-l" data-p="${p.i}" style="cursor:pointer">
-            <td class="nm" data-l="Colaborador">${esc(p.nome)}${p.verif ? ` <span class="tag t-no">${p.verif} verificar</span>` : ''}
+            <td class="l" data-l="Colaborador">${esc(p.nome)}${p.verif ? ` <span class="tag t-no">${p.verif} verificar</span>` : ''}
               <div class="sub">${esc(p.setor || '')}${p.mob ? ' · mobilidade' : ''}</div></td>
             <td data-l="Lanche">${p.lanche ? brl(p.lanche) : '—'}</td>
             <td data-l="Janta">${p.janta ? brl(p.janta) : '—'}</td>
@@ -1899,7 +1941,7 @@ function detalheBen(p){
   modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
     <p class="sub">Lanche ${brl(p.lanche)} · Janta ${brl(p.janta)} · VT ${p.vt} dia(s) = ${brl(p.vt * p.vd)}
       ${p.mob ? `· auxílio mobilidade R$ ${fmtF(p.vd)}/dia` : '· <b>sem</b> auxílio mobilidade'}</p>
-    <div class="sa-wrap"><table class="t">
+    <div class="sa-wrap"><table class="resp">
       <thead><tr><th>Dia</th><th>Jornada</th><th>Batidas</th><th>HE</th><th>Trab.</th>
         <th>Lanche</th><th>Janta</th><th>VT</th><th>Regime do dia</th><th>Análise</th></tr></thead>
       <tbody>${dias.map(d => `<tr${d.verificar ? ' style="background:#fff8e1"' : ''}>
