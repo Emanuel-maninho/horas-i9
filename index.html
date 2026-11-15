@@ -403,7 +403,7 @@ function opcoesSuperior(sel, excluir, vazio){
 }
 function salvarFiltro(){ store.set('he_filtro', JSON.stringify(S.f)); }
 /* grupos de setor recolhíveis (estado lembrado por aparelho) */
-let FECHADOS = new Set(); try { FECHADOS = new Set(JSON.parse(store.get('he_fechados')||'[]')); } catch(e){}
+let FECHADOS = new Set();   /* restaurado do localStorage logo depois de `store` (ver abaixo) */
 const salvarFechados = () => store.set('he_fechados', JSON.stringify([...FECHADOS]));
 function cabGrupo(chave, cols, rotulo, resumo){
   const f = FECHADOS.has(chave);
@@ -429,6 +429,9 @@ const store = {
   set(k,v){ try { localStorage.setItem(k,v); } catch(e){} },
   del(k){ try { localStorage.removeItem(k); } catch(e){} }
 };
+/* restaura os grupos recolhidos SÓ DEPOIS de `store` existir: lá em cima `store` ainda estava
+   na zona morta do const, o ReferenceError caía no catch vazio e o estado nunca voltava. */
+try { FECHADOS = new Set(JSON.parse(store.get('he_fechados')||'[]')); } catch(e){}
 
 async function rpc(fn, args = {}) {
   const h = {'Content-Type':'application/json', apikey: SUPABASE_ANON_KEY};
@@ -453,6 +456,15 @@ const S = { token:null, eu:null, mes:null, tab:null, resumo:[], pend:[], ordem:'
 
 function mesAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
 function mesData(){ return S.mes + '-01'; }
+
+/* data AAAA-MM-DD no fuso da operação (America/Sao_Paulo).
+   toISOString() devolve a data em UTC: das 21h à meia-noite de Brasília ela já aponta o dia
+   seguinte, e os formulários abriam com a data errada justamente no horário de hora extra. */
+const FMT_DIA = new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo', year:'numeric', month:'2-digit', day:'2-digit'});
+function diaLocal(d){
+  const p = {}; for (const x of FMT_DIA.formatToParts(d == null ? new Date() : new Date(d))) p[x.type] = x.value;
+  return `${p.year}-${p.month}-${p.day}`;
+}
 
 /* ════ LOGIN ════ */
 function telaLogin(){
@@ -694,7 +706,7 @@ async function vMinhas(){
 
 /* ── formulário de HE (pedido próprio ou autorização direta do líder) ── */
 function formHE(pessoa){
-  const hoje = new Date().toISOString().slice(0,10);
+  const hoje = diaLocal();
   modal(`<div class="md-h"><h2 style="margin:0">${pessoa?'Autorizar HE':'Solicitar hora extra'}</h2><button class="x-btn" data-close>×</button></div>
     ${pessoa?`<p class="sub">${esc(pessoa.nome)}</p>`:'<p class="sub">Seu superior imediato recebe o pedido para autorizar.</p>'}
     <label for="h-data">Data</label><input class="in" type="date" id="h-data" value="${hoje}">
@@ -919,7 +931,7 @@ async function detalhe(p){
 /* ── acionamento de sobreaviso (líder) ── */
 function formAcion(p, pre){
   pre = pre || {};
-  const ontem = new Date(Date.now()-864e5).toISOString().slice(0,10);
+  const ontem = diaLocal(Date.now()-864e5);
   const noite = pre.noite || ontem;
   const prox = d => new Date(new Date(d+'T12:00').getTime()+864e5).toISOString().slice(0,10);
   modal(`<div class="md-h"><h2 style="margin:0">Acionamento de sobreaviso</h2><button class="x-btn" data-close>×</button></div>
