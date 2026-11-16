@@ -399,13 +399,17 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const hm = m => { m = Math.round(m || 0); const s = m < 0 ? '−' : ''; m = Math.abs(m);
   return s + Math.floor(m / 60) + 'h' + String(m % 60).padStart(2, '0'); };
 const brl = v => (v < 0 ? '−' : '') + 'R$ ' + Math.abs(v).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-const PAPEL = {colaborador:'Colaborador',supervisor:'Supervisor de campo',coordenador:'Coordenador',gc:'Gestor de Contrato',rh:'RH',admin:'Administrador'};
+const PAPEL = {colaborador:'Colaborador',supervisor:'Supervisor de campo',coordenador:'Coordenador',gc:'Gestor de Contrato',admin:'Administrador'};
 const LIDER = ['supervisor','coordenador','gc','admin'];
+/* Funcao administrativa de RH/DP — independente da posicao no organograma.
+   O teste de papel==='rh' e' tolerancia de transicao: vale enquanto o banco
+   ainda nao migrou. Pode sair depois que a migracao _06/_07 estiver no ar. */
+const temRH = p => !!p && (p.acesso_rh === true || p.papel === 'rh' || p.papel === 'admin');
 const DIA = ['dom','seg','ter','qua','qui','sex','sáb'];
 
 /* ── grupos de empresa e setores ── */
 const SETORES_ENG = ['Gestão de Engenharia','Automação','Elétrica','Mecânica','Planejamento','Projetos','SESMT','Almoxarifado'];
-const SETORES_ADM = ['Diretoria','Administrativo','Comercial','Financeiro','RH / DP','Suprimentos','Logística / Frota','TI'];
+const SETORES_ADM = ['Diretoria','Administrativo','Comercial','Financeiro','DP','RH','Suprimentos','Logística / Frota','TI'];
 const SETORES = [...SETORES_ENG, ...SETORES_ADM];
 const GRUPOS = ['I9 MATRIZ','I9 FILIAL','FIO FORTE','TODOS'];
 function grupo(emp){
@@ -415,7 +419,7 @@ function grupo(emp){
   return 'OUTRAS';
 }
 const ehEng = p => !p.setor || SETORES_ENG.includes(p.setor);     // sem setor fica visível até ser classificado
-const usaFiltro = () => S.eu && (S.eu.papel === 'admin' || S.eu.papel === 'rh');
+const usaFiltro = () => temRH(S.eu);
 function filtrar(lista){
   if (!usaFiltro()) return lista;
   return lista.filter(p => (S.f.g === 'TODOS' || grupo(p.empresa) === S.f.g)
@@ -541,7 +545,7 @@ $('b-entrar').onclick = async () => {
 };
 $('l-pin').addEventListener('keydown', e => { if (e.key === 'Enter') $('b-entrar').click(); });
 
-const PAP_CONV = {colaborador:'colaborador',supervisor:'supervisor de campo',coordenador:'coordenador',gc:'gestor de contrato',rh:'RH'};
+const PAP_CONV = {colaborador:'colaborador',supervisor:'supervisor de campo',coordenador:'coordenador',gc:'gestor de contrato'};
 $('b-conv').onclick = async () => {
   const c = $('a-conv').value.trim();
   if (c.replace(/[^A-Za-z0-9]/g,'').length !== 8) return msg('m-cad','O convite tem 8 letras/números.');
@@ -585,19 +589,19 @@ async function iniciar(){
   $('v-login').classList.add('hidden'); $('v-app').classList.remove('hidden');
   const pn = S.eu.nome.split(' ');
   $('u-nome').textContent = window.innerWidth < 640 && pn.length > 2 ? pn[0] + ' ' + pn[pn.length-1] : S.eu.nome;
-  $('u-papel').textContent = PAPEL[S.eu.papel] + ' · código ' + S.eu.codigo + (S.eu.superior ? ' · superior: ' + S.eu.superior : '');
+  $('u-papel').textContent = PAPEL[S.eu.papel] + (temRH(S.eu) && S.eu.papel !== 'admin' ? ' · RH' : '') + ' · código ' + S.eu.codigo + (S.eu.superior ? ' · superior: ' + S.eu.superior : '');
   S.mes = S.mes || mesAtual(); $('mes').value = S.mes;
   const tabs = [['minhas','Minhas horas']];
-  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['equipe', S.eu.papel==='rh'?'Pessoas':'Equipe']);
-  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['sa','Sobreaviso']);
-  if (LIDER.includes(S.eu.papel) || S.eu.papel === 'rh') tabs.push(['pend','Pendências']);
-  if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rh','Fechamento RH']);
-  if (S.eu.papel === 'rh' || S.eu.papel === 'admin') tabs.push(['rhb','Benefícios extras']);
-  if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['av','Avisos']);
-  if (S.eu.papel === 'admin' || S.eu.papel === 'rh') tabs.push(['cad','Cadastros']);
+  if (LIDER.includes(S.eu.papel) || temRH(S.eu)) tabs.push(['equipe', temRH(S.eu)?'Pessoas':'Equipe']);
+  if (LIDER.includes(S.eu.papel) || temRH(S.eu)) tabs.push(['sa','Sobreaviso']);
+  if (LIDER.includes(S.eu.papel) || temRH(S.eu)) tabs.push(['pend','Pendências']);
+  if (temRH(S.eu)) tabs.push(['rh','Fechamento RH']);
+  if (temRH(S.eu)) tabs.push(['rhb','Benefícios extras']);
+  if (temRH(S.eu)) tabs.push(['av','Avisos']);
+  if (temRH(S.eu)) tabs.push(['cad','Cadastros']);
   tabs.push(['man','Manual']);
   S.tabs = tabs;
-  S.tab = S.tab && tabs.some(t=>t[0]===S.tab) ? S.tab : (S.eu.papel==='colaborador' ? 'minhas' : tabs[1]?.[0] || 'minhas');
+  S.tab = S.tab && tabs.some(t=>t[0]===S.tab) ? S.tab : (S.eu.papel==='colaborador' && !temRH(S.eu) ? 'minhas' : tabs[1]?.[0] || 'minhas');
   await carregar();
 }
 /* ── "ponto atualizado em…" logo abaixo das abas ──
@@ -659,7 +663,7 @@ async function carregar(){
     else if (S.tab === 'cad') await vCad();
     else if (S.tab === 'sa') await vSobreaviso();
     else if (S.tab === 'av') await vAvisos();
-    else if (S.tab === 'man') $('main').innerHTML = manualHTML(S.eu.papel);
+    else if (S.tab === 'man') $('main').innerHTML = manualHTML(S.eu.papel, temRH(S.eu));
   } catch(e){ $('main').innerHTML = `<div class="card"><div class="msg e">${esc(e.message)}</div></div>`; }
 }
 $('mes').onchange = () => { S.mes = $('mes').value || mesAtual(); carregar(); };
@@ -802,7 +806,7 @@ function vEquipe(){
   const heFeitas = alvo.reduce((s,r)=>s+r.he50+r.he75+r.he100,0);
   const semAut = tot('dias_sem_aut'), aud = tot('aud_dias');
   const selbar = `<div class="selbar">
-      ${S.grupos && S.grupos.length?`<select class="in" id="g-sel" aria-label="Grupo"><option value="">${S.eu.papel==='rh'?'Todas as pessoas':'Toda a equipe'}</option>
+      ${S.grupos && S.grupos.length?`<select class="in" id="g-sel" aria-label="Grupo"><option value="">${temRH(S.eu)?'Todas as pessoas':'Toda a equipe'}</option>
         ${S.grupos.map(x=>`<option value="${x.id}" ${x.id===S.grupoId?'selected':''}>${esc(x.nome)} (${x.pessoas.length})</option>`).join('')}</select>`:''}
       ${selEq.length?`<span class="info">Indicadores de <b>${selEq.length}</b> de ${eq.length} pessoas${g?` · grupo <b>${esc(g.nome)}</b>${alterado?' (alterado)':''}`:''}</span>
         <label class="info" style="display:flex;gap:5px;align-items:center;margin:0"><input type="checkbox" id="g-so" ${S.soSel?'checked':''}> só os selecionados na tabela</label>
@@ -828,7 +832,7 @@ function vEquipe(){
       <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div>${aud?`<div class="l">+ ${aud} dia${aud>1?'s':''} para auditar no Quark</div>`:''}</div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      <h2 style="margin:0">${S.eu.papel==='rh'?'Pessoas':'Minha equipe'} no mês</h2>
+      <h2 style="margin:0">${temRH(S.eu)?'Pessoas':'Minha equipe'} no mês</h2>
       ${LIDER.includes(S.eu.papel)?'<button class="btn p s" id="b-conv-eq">+ Convidar pessoa</button>':''}</div>
       <p class="sub" style="margin-bottom:8px">Toque em uma pessoa para ver os dias${LIDER.includes(S.eu.papel)?' e autorizar HE':''}. Use as caixinhas para selecionar.</p>
       ${eq.length>12?`<input class="in" id="b-eq" placeholder="Buscar nome" style="margin-bottom:10px" value="${esc(S.busca)}">`:''}
@@ -1076,8 +1080,8 @@ function imprimir(p, dias, auts){
 
 /* ════ MANUAL ════
    Cada perfil vê as seções que usa. Nada de valores ou dados de pessoas aqui. */
-function manualHTML(papel){
-  const lider = LIDER.includes(papel), rh = papel === 'rh' || papel === 'admin';
+function manualHTML(papel, rhFlag){
+  const lider = LIDER.includes(papel), rh = rhFlag === true || papel === 'rh' || papel === 'admin';
   const B = (t, c) => `<span class="ui btn ${c||''} s">${t}</span>`;
   const T = (t, c) => `<span class="ui tag ${c||''}">${t}</span>`;
   const sec = (titulo, corpo, aberto, quem) => `<details ${aberto?'open':''}><summary><span>${titulo}</span>${quem?`<span class="quem">${quem}</span>`:''}</summary><div class="bd">${corpo}</div></details>`;
@@ -1503,7 +1507,7 @@ async function vSobreaviso(){
   const noites = p => { let n = 0; for (let i=1;i<=nd;i++) if (on.has(p.pessoa_id+'|'+dia(i))) n++; return n; };
   $('main').innerHTML = `
     ${barraFiltro(base)}
-    ${['admin','rh'].includes(S.eu.papel) ? `<div class="card">
+    ${temRH(S.eu) ? `<div class="card">
       <div class="row-h"><h2 style="margin:0">Importar escala do PDF</h2>
         <span><input type="file" id="esc-pdf" accept="application/pdf,.pdf" style="display:none">
           <button class="btn p s" id="b-esc-pdf">Escolher o PDF da semana</button></span></div>
@@ -1650,7 +1654,7 @@ function vRH(){
           <td>${brl(sum(c=>c.total))}</td></tr></tfoot>
       </table></div>
       <p class="sub" style="margin-top:8px">Clique em uma pessoa para ver os dias e imprimir o relatório individual.
-        Para imprimir o de quem não aparece aqui, use a aba ${S.eu.papel==='rh'?'Pessoas':'Equipe'}.</p>
+        Para imprimir o de quem não aparece aqui, use a aba ${temRH(S.eu)?'Pessoas':'Equipe'}.</p>
       <p class="sub" style="margin-top:4px">Sobreaviso = horas da noite de escala sem trabalho, pagas a 1/3 da hora base. As horas de acionamento já estão nas colunas de HE ("acion." mostra quanto da folga gerada veio delas; o CSV traz o detalhe por faixa).</p>
       <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
     </div>`;
@@ -1691,7 +1695,7 @@ const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'}
 
 async function vPendencias(){
   const f = S.pend_f = S.pend_f || {status:'ABERTO', tipo:'', sup:'', de:'', ate:''};
-  const chefe = S.eu.papel === 'admin' || S.eu.papel === 'rh';
+  const chefe = temRH(S.eu);
   let [lista, resumo] = await Promise.all([
     rpc('he_alertas', {p_token:S.token, p_status:f.status || 'TODOS',
       p_tipo:f.tipo || null, p_de:f.de || null, p_ate:f.ate || null, p_supervisor:f.sup || null}),
@@ -2041,7 +2045,7 @@ async function vCad(){
   S.pessoas = ps;
   const adm = S.eu.papel === 'admin';
   const opSup = (sel, excl) => opcoesSuperior(sel, excl);
-  const opPap = (sel) => ['colaborador','supervisor','coordenador','gc','rh'].map(k=>`<option value="${k}" ${k===sel?'selected':''}>${PAPEL[k]}</option>`).join('');
+  const opPap = (sel) => ['colaborador','supervisor','coordenador','gc'].map(k=>`<option value="${k}" ${k===sel?'selected':''}>${PAPEL[k]}</option>`).join('');
   const pend = ps.filter(p=>p.status==='pendente');
   const baseCad = ps.filter(p=>p.status!=='pendente');
   const filtrados = filtrar(baseCad);
@@ -2099,7 +2103,7 @@ async function vCad(){
         <tbody id="t-pes">${ativos.map(p=>`<tr data-n="${esc(p.nome.toLowerCase())}">${adm?`<td><input type="checkbox" class="sel" value="${p.id}"></td>`:''}
           <td class="l">${esc(p.nome)}<div class="sub">código ${p.codigo} · ${esc(p.cargo||p.empresa||'')}${p.matricula?' · mat. '+esc(p.matricula):''}</div></td>
           <td class="l">${p.setor?esc(p.setor):'<span class="tag t-wait">classificar</span>'}</td>
-          <td class="l w">${p.papel==='colaborador'&&p.status!=='ativo'?'—':`<span class="${p.status==='ativo'?'':'muted'}">${PAPEL[p.papel]}</span>`}</td><td class="l w">${esc(p.superior||'—')}</td>
+          <td class="l w">${p.papel==='colaborador'&&p.status!=='ativo'?'—':`<span class="${p.status==='ativo'?'':'muted'}">${PAPEL[p.papel]||'—'}${p.acesso_rh?' <span class="tag t-sa">RH</span>':''}</span>`}</td><td class="l w">${esc(p.superior||'—')}</td>
           <td class="l"><span class="tag ${p.status==='ativo'?'t-ok':p.status==='bloqueado'?'t-no':p.convite_pendente?'t-wait':'t-gray'}">${p.status==='sem_acesso'?(p.convite_pendente?'convite enviado':'sem acesso'):p.status}</span></td>
           <td>${p.hora_base?brl(+p.hora_base):'—'}</td>
           <td><button class="btn s" data-ed="${p.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>
@@ -2274,6 +2278,7 @@ function editar(p, opSup, opPap, adm){
     <label>Setor${p.cargo?' <span class="sub">('+esc(p.cargo)+')</span>':''}</label><select class="in" id="e-set"><option value="">— sem setor —</option>
       <optgroup label="Engenharia">${SETORES_ENG.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup>
       <optgroup label="Outras áreas">${SETORES_ADM.map(x=>`<option ${x===p.setor?'selected':''}>${x}</option>`).join('')}</optgroup></select>`:''}
+    ${adm&&p.papel!=='admin'?`<label class="gopt" style="margin-top:12px"><input type="checkbox" id="e-rh" ${p.acesso_rh?'checked':''}><div><b>Acesso de RH / DP</b><div class="sub">Libera Fechamento RH, Benefícios extras, Avisos e Cadastros, e deixa a pessoa ver todo mundo. Não muda a função no organograma nem quem ela autoriza.</div></div></label>`:''}
     ${adm?`<label>Celular (WhatsApp)</label><input class="in" id="e-tel" inputmode="tel" value="${esc(p.telefone||'')}" placeholder="(27) 99999-9999">`:''}
     <div class="row"><div><label>Matrícula</label><input class="in" id="e-mat" value="${esc(p.matricula||'')}"></div>
       <div><label>Hora base (R$)</label><input class="in" id="e-hb" inputmode="decimal" value="${p.hora_base??''}" placeholder="25,00"></div></div>
@@ -2291,6 +2296,8 @@ function editar(p, opSup, opPap, adm){
         p_superior: adm ? ($('e-sup').value || null) : p.superior_id,
         p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null,
         ...(adm ? {p_setor: $('e-set').value || null, p_telefone: $('e-tel').value.trim()} : {})});
+      if ($('e-rh') && $('e-rh').checked !== !!p.acesso_rh)
+        await rpc('he_admin_acesso', {p_token:S.token, p_pessoa:p.id, p_acao:$('e-rh').checked?'rh_on':'rh_off'});
       fecharModal(); S.pessoas = null; carregar(); } catch(e){ msg('e-m', e.message); }
   };
   document.querySelectorAll('[data-ac]').forEach(b => b.onclick = async () => {
@@ -2301,9 +2308,9 @@ function editar(p, opSup, opPap, adm){
 }
 
 /* ════ CONVITES ════ */
-const NIVEL = {colaborador:0,supervisor:1,coordenador:2,gc:3,rh:3,admin:9};
+const NIVEL = {colaborador:0,supervisor:1,coordenador:2,gc:3,admin:9};
 function papeisConvite(){
-  const todos = ['colaborador','supervisor','coordenador','gc','rh'];
+  const todos = ['colaborador','supervisor','coordenador','gc'];
   return S.eu.papel === 'admin' ? todos : todos.filter(k => k !== 'rh' && NIVEL[k] < NIVEL[S.eu.papel]);
 }
 function linkApp(){ return location.href.split('#')[0].split('?')[0]; }
