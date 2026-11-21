@@ -434,6 +434,7 @@ const CHEFIA = [...LIDER, 'diretor'];
    Mesma ideia da REV. de um projeto: a data e o que mudou, visivel no
    cabecalho. Entrada nova vai SEMPRE no topo; REV e' a primeira.           */
 const REVISOES = [
+  ['2026.11.21b', 'Sinalização de foto por rosto (tamanho, corte) e fundo escuro; sai "sem ambiente atrás"'],
   ['2026.11.21', 'Auditoria de ponto: fotos e locais das batidas (entrada e saída), papel Diretoria'],
   ['2026.11.16', 'Acesso de RH por permissão (acesso_rh), separado do papel'],
   ['2026.11.14', 'Pendências de ponto e fechamento de folha'],
@@ -1742,21 +1743,27 @@ const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'}
    Só entram ENTRADA e SAÍDA. O almoço fica de fora porque varia de verdade
    e encheria a fila de alarme falso.
 
-   O robô (auditar_fotos.py) mede LUZ e TEXTURA; ele não reconhece pessoas.
-   A nota serve para ORDENAR a fila — quem decide é quem está olhando. Por
-   isso nenhum status muda sozinho e todo cartão tem os dois botões.
+   O robô (auditar_fotos.py) mede TAMANHO E POSIÇÃO DO ROSTO (detector YuNet)
+   e LUZ da imagem. A nota serve para ORDENAR a fila — quem decide é quem está
+   olhando. Por isso nenhum status muda sozinho e todo cartão tem os dois botões.
+
+   TRAVA QUE NÃO SE MEXE: se o detector não achar rosto, a foto NÃO é marcada
+   por isso. Detector de rosto erra mais em pele escura, e o fim desta fila é
+   uma advertência — então a falha dele tem que cair sempre do lado de não
+   apontar ninguém. Em 628 fotos reais achou em 618. Ver a migração _17.
 
    Marcar NOTIFICADO faz a imagem parar de expirar em 30 dias: vira prova do
    processo. É o único jeito de guardar a foto além desse prazo.
    ════════════════════════════════════════════════════════════════════════ */
 const MOTIVO = {
-  SEM_FUNDO:       ['Sem ambiente atrás',     'A moldura da foto está lisa: não dá para ver onde a pessoa está.'],
-  ROSTO_COLADO:    ['Rosto colado na câmera', 'A imagem inteira está lisa — o rosto ocupa o quadro todo.'],
-  ESCURA:          ['Escura',                 'Luz baixa demais para identificar pessoa ou local.'],
-  ESTOURADA:       ['Estourada',              'Luz alta demais, a imagem perdeu o desenho.'],
-  BORRADA:         ['Borrada',                'Sem foco: movimento ou lente suja.'],
-  BAIXO_CONTRASTE: ['Sem contraste',          'Imagem quase chapada, pouco detalhe.'],
-  SEM_IMAGEM:      ['Foto não abriu',         'A batida existe, mas o Quark não devolveu a imagem.'],
+  ROSTO_COLADO:    ['Rosto ocupando o quadro', 'O rosto toma 40% ou mais da foto: não dá para ver onde a pessoa está.'],
+  ROSTO_CORTADO:   ['Rosto cortado',           'O rosto sai pela borda de baixo — falta o queixo.'],
+  FUNDO_ESCURO:    ['Fundo escuro',            'Foto à noite: o rosto até aparece, mas o ambiente atrás some.'],
+  ESCURA:          ['Escura',                  'Luz baixa demais para identificar pessoa ou local.'],
+  ESTOURADA:       ['Estourada',               'Luz alta demais, a imagem perdeu o desenho.'],
+  BORRADA:         ['Borrada',                 'Sem foco: movimento ou lente suja.'],
+  BAIXO_CONTRASTE: ['Sem contraste',           'Imagem quase chapada, pouco detalhe.'],
+  SEM_IMAGEM:      ['Foto não abriu',          'A batida existe, mas o Quark não devolveu a imagem.'],
 };
 const isoD = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const brD  = s => !s ? '' : String(s).slice(8, 10) + '/' + String(s).slice(5, 7);
@@ -1781,8 +1788,10 @@ async function vAuditoria(){
     <div class="card">
       <h2>Auditoria de ponto — foto e local da batida</h2>
       <div class="expl">Entra a <b>primeira e a última batida</b> de cada dia; o almoço fica de fora porque
-        varia de verdade. A sinalização automática mede <b>luz e textura</b> da imagem e <b>não reconhece
-        pessoas</b>: ela só põe na frente o que merece um olhar — quem decide é você.
+        varia de verdade. A sinalização olha <b>o tamanho e a posição do rosto</b> e <b>a luz do fundo</b>:
+        rosto ocupando o quadro, rosto cortado na borda, foto noturna sem ambiente, escura ou borrada.
+        Parede lisa atrás <b>não</b> é motivo. Quando o detector não acha rosto, a foto não é marcada —
+        ela só põe na frente o que merece um olhar, e quem decide é você.
         Marcar <b>Notificar</b> guarda a imagem como prova e tira ela do apagamento de 30 dias.</div>
       <div class="sa-bar">
         ${sel('a-st', f.status, [['PENDENTE','Para revisar'],['OK','Revisadas e liberadas'],
