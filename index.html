@@ -230,6 +230,8 @@ tfoot td{font-weight:600;font-size:14px;border-top:2px solid var(--graphite);bor
 .fmeta b{display:block;font-size:13px;letter-spacing:-.005em;margin-bottom:2px}
 .fmeta .q{color:var(--steel);font-size:11.5px}
 .fmot{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.fobs{color:var(--ink2);font-size:11.5px;line-height:1.3}
+.fobs:not(:empty){margin-top:6px;padding-left:6px;border-left:2px solid var(--rule)}
 .fa{display:flex;gap:6px;padding:0 10px 10px}
 .fa .btn{flex:1;padding:6px 8px;font-size:12px}
 .flupa{position:fixed;inset:0;background:rgba(17,20,24,.88);display:grid;place-items:center;z-index:90;padding:20px;cursor:zoom-out}
@@ -434,7 +436,7 @@ const CHEFIA = [...LIDER, 'diretor'];
    Mesma ideia da REV. de um projeto: a data e o que mudou, visivel no
    cabecalho. Entrada nova vai SEMPRE no topo; REV e' a primeira.           */
 const REVISOES = [
-  ['2026.11.21b', 'Sinalização de foto por rosto (tamanho, corte) e fundo escuro; sai "sem ambiente atrás"'],
+  ['2026.11.21b', 'Sinalização de foto por rosto (tamanho, corte) e fundo escuro; observação escrita na notificação'],
   ['2026.11.21', 'Auditoria de ponto: fotos e locais das batidas (entrada e saída), papel Diretoria'],
   ['2026.11.16', 'Acesso de RH por permissão (acesso_rh), separado do papel'],
   ['2026.11.14', 'Pendências de ponto e fechamento de folha'],
@@ -1779,6 +1781,10 @@ async function vAuditoria(){
     rpc('he_fotos_resumo', {p_token: S.token, p_de: f.de || null, p_ate: f.ate || null}),
   ]);
   const its = lista || [];
+  /* guardados por id para o diálogo de notificação: a observação para
+     pré-preencher na edição, e os motivos para saber se ela é obrigatória. */
+  S.aud_obs = {}; S.aud_mot = {};
+  its.forEach(i => { S.aud_obs[i.id] = i.observacao || ''; S.aud_mot[i.id] = i.motivos || []; });
   const st = (rot, v, pe) => `<div class="st"><div class="l">${rot}</div><div class="v">${v}</div>` +
                              (pe ? `<div class="l">${pe}</div>` : '') + `</div>`;
   const sel = (id, val, ops) => `<select class="in aud-f" id="${id}">${ops.map(([v, r2]) =>
@@ -1844,6 +1850,7 @@ function fotoCard(i){
       <div class="fmot">${(i.motivos || []).map(m => {
         const [rot, q] = MOTIVO[m] || [m, ''];
         return `<span class="tag t-no" title="${esc(q)}">${esc(rot)}</span>`; }).join('')}</div>
+      <div class="fobs">${i.observacao ? '<i>' + esc(i.observacao) + '</i>' : ''}</div>
       ${i.ja_notificado > 0 && i.status !== 'NOTIFICADO'
         ? `<div class="q" style="margin-top:5px"><b>já tem ${i.ja_notificado} notificação${i.ja_notificado > 1 ? 'ões' : ''}</b></div>` : ''}
       ${i.status !== 'PENDENTE'
@@ -1856,23 +1863,60 @@ function fotoCard(i){
 const audBotoes = (id, st) => st === 'PENDENTE'
   ? `<button class="btn sec" data-mk="OK" data-id="${id}">Está boa</button>
      <button class="btn" data-mk="NOTIFICADO" data-id="${id}">Notificar</button>`
+  : st === 'NOTIFICADO'
+  ? `<button class="btn sec" data-mk="NOTIFICADO" data-id="${id}">Editar observação</button>
+     <button class="btn sec" data-mk="PENDENTE" data-id="${id}">Voltar para a fila</button>`
   : `<button class="btn sec" data-mk="PENDENTE" data-id="${id}">Voltar para a fila</button>`;
+
+/* ────────────────────────────────────────────────────────────────────────
+   A observação é o que o RH lê. No relatório ela aparece na coluna "O que
+   foi observado", embaixo dos motivos automáticos.
+
+   Ela é OBRIGATÓRIA quando o robô não apontou nada: nesse caso quem decidiu
+   foi a pessoa, e uma linha de processo disciplinar sem motivo escrito não
+   se sustenta se o colaborador contestar. Quando já há motivo automático a
+   observação é opcional — serve para completar o que a máquina não vê
+   ("bateu o ponto dentro do carro", "não é o local do contrato").
+   ──────────────────────────────────────────────────────────────────────── */
+function pedirObs(id, temMotivo){
+  const atual = (S.aud_obs && S.aud_obs[id]) || '';
+  const aviso = atual ? '' :
+    '\nA imagem deixa de ser apagada em 30 dias e passa a ficar guardada como prova.\n';
+  const exige = temMotivo ? '(opcional)' : '(obrigatória: o robô não apontou nada nesta foto)';
+  const t = prompt('O que foi observado nesta batida? ' + exige + '\n' + aviso +
+                   '\nEsse texto vai no relatório que o RH anexa ao processo.', atual);
+  if (t === null) return null;                     // cancelou
+  const txt = t.trim();
+  if (!txt && !temMotivo) {
+    alert('Sem motivo automático, a observação é obrigatória — senão o relatório\n' +
+          'sai com a linha em branco justamente onde precisa do porquê.');
+    return pedirObs(id, temMotivo);
+  }
+  return txt;
+}
 
 function ligarCartoes(){
   document.querySelectorAll('.fthumb[data-id]').forEach(el => el.onclick = () => lupa(el));
   document.querySelectorAll('[data-mk]').forEach(b => b.onclick = async () => {
     const id = +b.dataset.id, st = b.dataset.mk;
-    /* NOTIFICADO tira a foto do expurgo de 30 dias — vale avisar antes. */
-    if (st === 'NOTIFICADO' && !confirm(
-        'Notificar esta batida ao RH?\n\nA imagem deixa de ser apagada em 30 dias e passa a ficar guardada como prova do processo.')) return;
+    let obs;
+    if (st === 'NOTIFICADO') {
+      obs = pedirObs(id, !!(S.aud_mot && (S.aud_mot[id] || []).length));
+      if (obs === null) return;
+    }
     busy(b, true);
     try {
-      const r = await rpc('he_foto_marcar', {p_token: S.token, p_id: id, p_status: st});
+      const p = {p_token: S.token, p_id: id, p_status: st};
+      if (st === 'NOTIFICADO') p.p_obs = obs;
+      const r = await rpc('he_foto_marcar', p);
+      if (st === 'NOTIFICADO') { S.aud_obs = S.aud_obs || {}; S.aud_obs[id] = obs; }
       msg('a-msg', (st === 'OK' ? 'Liberada.' : st === 'NOTIFICADO'
             ? 'Notificada — a imagem fica guardada e não expira.' : 'De volta para a fila.')
           + ' Por ' + r.revisado_por + '.', true);
       const c = $('fc-' + id);
       c.className = 'fcard' + (st === 'OK' ? ' rev-ok' : st === 'NOTIFICADO' ? ' rev-not' : '');
+      const cx = c.querySelector('.fobs');
+      if (cx) cx.innerHTML = (st === 'NOTIFICADO' && obs) ? '<i>' + esc(obs) + '</i>' : '';
       c.querySelector('.fa').innerHTML = audBotoes(id, st);
       ligarCartoes();
     } catch(e) { msg('a-msg', e.message); busy(b, false); }
