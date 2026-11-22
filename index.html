@@ -436,6 +436,7 @@ const CHEFIA = [...LIDER, 'diretor'];
    Mesma ideia da REV. de um projeto: a data e o que mudou, visivel no
    cabecalho. Entrada nova vai SEMPRE no topo; REV e' a primeira.           */
 const REVISOES = [
+  ['2026.11.22', 'Foto sem pessoa como desvio (afirmado por quem revisa), filtro por colaborador e dossiê individual'],
   ['2026.11.21b', 'Sinalização de foto por rosto (tamanho, corte) e fundo escuro; observação escrita na notificação'],
   ['2026.11.21', 'Auditoria de ponto: fotos e locais das batidas (entrada e saída), papel Diretoria'],
   ['2026.11.16', 'Acesso de RH por permissão (acesso_rh), separado do papel'],
@@ -1749,10 +1750,18 @@ const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'}
    e LUZ da imagem. A nota serve para ORDENAR a fila — quem decide é quem está
    olhando. Por isso nenhum status muda sozinho e todo cartão tem os dois botões.
 
-   TRAVA QUE NÃO SE MEXE: se o detector não achar rosto, a foto NÃO é marcada
+   TRAVA QUE NÃO SE MEXE: se o detector não achar rosto, a foto NÃO é acusada
    por isso. Detector de rosto erra mais em pele escura, e o fim desta fila é
    uma advertência — então a falha dele tem que cair sempre do lado de não
-   apontar ninguém. Em 628 fotos reais achou em 618. Ver a migração _17.
+   apontar ninguém. Ver a migração _17.
+
+   O QUE ISSO CUSTOU, E COMO FICOU (22/11/2026): sem rosto detectado, foto de
+   tela/mesa passava batido. Em 2.367 fotos o detector falhou em 14 — mas só 4
+   eram mesmo sem pessoa; as outras 10 tinham gente, contra a luz ou no escuro.
+   Marcar "sem pessoa" pela falha do detector erraria 71% das vezes, sempre no
+   mesmo tipo de foto. Então o robô só diz CONFERIR_PESSOA ("não achei rosto,
+   olhe isto"), que entra na fila e NÃO é impresso no relatório. Quem afirma o
+   desvio é quem revisa, e isso vai para motivos_rev. Ver a migração _18.
 
    Marcar NOTIFICADO faz a imagem parar de expirar em 30 dias: vira prova do
    processo. É o único jeito de guardar a foto além desse prazo.
@@ -1766,25 +1775,46 @@ const MOTIVO = {
   BORRADA:         ['Borrada',                 'Sem foco: movimento ou lente suja.'],
   BAIXO_CONTRASTE: ['Sem contraste',           'Imagem quase chapada, pouco detalhe.'],
   SEM_IMAGEM:      ['Foto não abriu',          'A batida existe, mas o Quark não devolveu a imagem.'],
+  /* aviso da máquina, nunca acusação — por isso fica fora do relatório (REL_OCULTA) */
+  CONFERIR_PESSOA: ['Conferir se tem pessoa',   'O detector não achou rosto aqui. Pode ser foto de tela, mesa ou chão — mas também pode ser alguém contra a luz: em 14 fotos assim, 10 tinham pessoa. Olhe a imagem e decida.'],
+  /* afirmado por quem revisa, olhando a foto. Este SAI no relatório. */
+  SEM_PESSOA:      ['Sem pessoa na imagem',     'Quem revisou olhou a foto e afirmou que não há pessoa nela.'],
 };
+/* Motivos da máquina que NÃO são impressos no relatório do RH: são pedidos de
+   conferência, não conclusões. Imprimir um palpite num anexo de advertência é
+   o erro que a migração _18 existe para evitar. */
+const REL_OCULTA = new Set(['CONFERIR_PESSOA']);
+/* Junta o que a máquina mediu (menos os palpites) com o que a pessoa afirmou. */
+const motivosDe = (i, pdf) => [
+  ...(i.motivos || []).filter(m => !(pdf && REL_OCULTA.has(m))),
+  ...(i.motivos_rev || []),
+];
 const isoD = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const brD  = s => !s ? '' : String(s).slice(8, 10) + '/' + String(s).slice(5, 7);
 const hhmm = s => !s ? '' : String(s).slice(0, 5);
 
 async function vAuditoria(){
   const hoje = new Date(), sete = new Date(hoje.getTime() - 6 * 864e5);
-  const f = S.aud_f = S.aud_f || {de: isoD(sete), ate: isoD(hoje), status: 'PENDENTE', so: true};
+  const f = S.aud_f = S.aud_f || {de: isoD(sete), ate: isoD(hoje), status: 'PENDENTE',
+                                  so: true, pessoa: ''};
 
-  const [lista, r] = await Promise.all([
+  /* A lista de nomes é buscada uma vez por sessão e guardada: ela não muda
+     durante a revisão e são ~250 linhas. */
+  const [lista, r, nomes] = await Promise.all([
     rpc('he_fotos', {p_token: S.token, p_de: f.de || null, p_ate: f.ate || null,
-                     p_status: f.status, p_so_sinal: f.so, p_limite: 60}),
+                     p_status: f.status, p_so_sinal: f.so,
+                     p_pessoa: f.pessoa || null, p_limite: 60}),
     rpc('he_fotos_resumo', {p_token: S.token, p_de: f.de || null, p_ate: f.ate || null}),
+    S.aud_nomes ? Promise.resolve(S.aud_nomes) : rpc('he_nomes', {p_token: S.token}),
   ]);
+  S.aud_nomes = nomes || [];
   const its = lista || [];
   /* guardados por id para o diálogo de notificação: a observação para
      pré-preencher na edição, e os motivos para saber se ela é obrigatória. */
-  S.aud_obs = {}; S.aud_mot = {};
-  its.forEach(i => { S.aud_obs[i.id] = i.observacao || ''; S.aud_mot[i.id] = i.motivos || []; });
+  S.aud_obs = {}; S.aud_mot = {}; S.aud_rev = {};
+  its.forEach(i => { S.aud_obs[i.id] = i.observacao || '';
+                     S.aud_mot[i.id] = i.motivos || [];
+                     S.aud_rev[i.id] = i.motivos_rev || []; });
   const st = (rot, v, pe) => `<div class="st"><div class="l">${rot}</div><div class="v">${v}</div>` +
                              (pe ? `<div class="l">${pe}</div>` : '') + `</div>`;
   const sel = (id, val, ops) => `<select class="in aud-f" id="${id}">${ops.map(([v, r2]) =>
@@ -1796,9 +1826,11 @@ async function vAuditoria(){
       <div class="expl">Entra a <b>primeira e a última batida</b> de cada dia; o almoço fica de fora porque
         varia de verdade. A sinalização olha <b>o tamanho e a posição do rosto</b> e <b>a luz do fundo</b>:
         rosto ocupando o quadro, rosto cortado na borda, foto noturna sem ambiente, escura ou borrada.
-        Parede lisa atrás <b>não</b> é motivo. Quando o detector não acha rosto, a foto não é marcada —
-        ela só põe na frente o que merece um olhar, e quem decide é você.
-        Marcar <b>Notificar</b> guarda a imagem como prova e tira ela do apagamento de 30 dias.</div>
+        Parede lisa atrás <b>não</b> é motivo. Quando o detector não acha rosto ele <b>não acusa</b>:
+        só pede <i>conferir se tem pessoa</i>, porque foto contra a luz também engana o detector.
+        Quem decide é você. Marcar <b>Notificar</b> guarda a imagem como prova e tira ela do
+        apagamento de 30 dias. Para montar um <b>dossiê de uma pessoa só</b>, escolha o nome no
+        filtro e gere o relatório.</div>
       <div class="sa-bar">
         ${sel('a-st', f.status, [['PENDENTE','Para revisar'],['OK','Revisadas e liberadas'],
                                  ['NOTIFICADO','Notificadas ao RH'],['TODOS','Todas']])}
@@ -1806,7 +1838,11 @@ async function vAuditoria(){
         <span style="font-size:13px">até</span><input class="in aud-f" type="date" id="a-ate" value="${f.ate}">
         <label style="display:flex;gap:6px;align-items:center;font-size:13px">
           <input type="checkbox" class="aud-f" id="a-so"${f.so ? ' checked' : ''}> só as sinalizadas</label>
-        <button class="btn s" id="a-rel">Relatório de suspeita de desvios</button>
+        ${sel('a-pes', f.pessoa, [['', 'Todos os colaboradores'],
+              ...S.aud_nomes.map(n => [n.id, n.nome])])}
+        <button class="btn s" id="a-rel">${f.pessoa
+          ? 'Dossiê de ' + esc((S.aud_nomes.find(n => n.id === f.pessoa) || {}).nome || '')
+          : 'Relatório de suspeita de desvios'}</button>
       </div>
       <div class="kpis">
         ${st('Batidas no período', r.total, (r.de ? brD(r.de) : '') + ' a ' + (r.ate ? brD(r.ate) : ''))}
@@ -1826,7 +1862,8 @@ async function vAuditoria(){
 
   document.querySelectorAll('.aud-f').forEach(el => el.onchange = () => {
     S.aud_f = {de: $('a-de').value, ate: $('a-ate').value,
-               status: $('a-st').value, so: $('a-so').checked};
+               status: $('a-st').value, so: $('a-so').checked,
+               pessoa: $('a-pes').value};
     carregar();
   });
   /* A janela PRECISA abrir dentro do gesto do clique. Abrir depois do await
@@ -1847,9 +1884,11 @@ function fotoCard(i){
       <b>${esc(i.nome)}</b>
       <div class="q">${brD(i.data)} · ${i.momento === 'ENTRADA' ? 'entrada' : 'saída'} ${hhmm(i.hora)}${i.setor ? ' · ' + esc(i.setor) : ''}</div>
       ${end ? `<div class="q" title="${esc(end)}">${esc(end.slice(0, 46))}${end.length > 46 ? '…' : ''}</div>` : ''}
-      <div class="fmot">${(i.motivos || []).map(m => {
+      <div class="fmot">${motivosDe(i).map(m => {
         const [rot, q] = MOTIVO[m] || [m, ''];
-        return `<span class="tag t-no" title="${esc(q)}">${esc(rot)}</span>`; }).join('')}</div>
+        /* o palpite da máquina é cinza; desvio medido ou afirmado é vermelho */
+        const cls = REL_OCULTA.has(m) ? 't-gray' : 't-no';
+        return `<span class="tag ${cls}" title="${esc(q)}">${esc(rot)}</span>`; }).join('')}</div>
       <div class="fobs">${i.observacao ? '<i>' + esc(i.observacao) + '</i>' : ''}</div>
       ${i.ja_notificado > 0 && i.status !== 'NOTIFICADO'
         ? `<div class="q" style="margin-top:5px"><b>já tem ${i.ja_notificado} notificação${i.ja_notificado > 1 ? 'ões' : ''}</b></div>` : ''}
@@ -1895,21 +1934,41 @@ function pedirObs(id, temMotivo){
   return txt;
 }
 
+/* A pergunta "esta foto não mostra pessoa?" só aparece onde ela faz sentido:
+   quando o robô avisou CONFERIR_PESSOA (não achou rosto), ou quando já havia
+   sido marcada assim antes. São 12 fotos em 2.367 — perguntar isso em toda
+   notificação seria um clique a mais em 100% dos casos para resolver 0,5%.
+   Nas demais, a observação escrita dá conta. */
+function pedirSemPessoa(id){
+  const mot = (S.aud_mot && S.aud_mot[id]) || [];
+  const jaTem = ((S.aud_rev && S.aud_rev[id]) || []).includes('SEM_PESSOA');
+  if (!mot.includes('CONFERIR_PESSOA') && !jaTem) return null;   // null = não mexe
+  return confirm('Esta foto NÃO mostra a pessoa (é tela, mesa, chão, objeto)?\n\n' +
+                 'OK  = sim, registrar "Sem pessoa na imagem" no relatório\n' +
+                 'Cancelar = tem gente na foto (contra a luz, escura, de longe)')
+    ? ['SEM_PESSOA'] : [];
+}
+
 function ligarCartoes(){
   document.querySelectorAll('.fthumb[data-id]').forEach(el => el.onclick = () => lupa(el));
   document.querySelectorAll('[data-mk]').forEach(b => b.onclick = async () => {
     const id = +b.dataset.id, st = b.dataset.mk;
-    let obs;
+    let obs, rev;
     if (st === 'NOTIFICADO') {
-      obs = pedirObs(id, !!(S.aud_mot && (S.aud_mot[id] || []).length));
+      rev = pedirSemPessoa(id);
+      obs = pedirObs(id, !!(S.aud_mot && (S.aud_mot[id] || []).length) ||
+                         !!(rev && rev.length));
       if (obs === null) return;
     }
     busy(b, true);
     try {
       const p = {p_token: S.token, p_id: id, p_status: st};
-      if (st === 'NOTIFICADO') p.p_obs = obs;
+      if (st === 'NOTIFICADO') { p.p_obs = obs; if (rev) p.p_motivos_rev = rev; }
       const r = await rpc('he_foto_marcar', p);
-      if (st === 'NOTIFICADO') { S.aud_obs = S.aud_obs || {}; S.aud_obs[id] = obs; }
+      if (st === 'NOTIFICADO') {
+        S.aud_obs = S.aud_obs || {}; S.aud_obs[id] = obs;
+        if (rev) { S.aud_rev = S.aud_rev || {}; S.aud_rev[id] = rev; }
+      }
       msg('a-msg', (st === 'OK' ? 'Liberada.' : st === 'NOTIFICADO'
             ? 'Notificada — a imagem fica guardada e não expira.' : 'De volta para a fila.')
           + ' Por ' + r.revisado_por + '.', true);
@@ -1917,6 +1976,12 @@ function ligarCartoes(){
       c.className = 'fcard' + (st === 'OK' ? ' rev-ok' : st === 'NOTIFICADO' ? ' rev-not' : '');
       const cx = c.querySelector('.fobs');
       if (cx) cx.innerHTML = (st === 'NOTIFICADO' && obs) ? '<i>' + esc(obs) + '</i>' : '';
+      const cm = c.querySelector('.fmot');
+      if (cm) cm.innerHTML = motivosDe({motivos: (S.aud_mot || {})[id] || [],
+                                        motivos_rev: (S.aud_rev || {})[id] || []}).map(m => {
+        const [rot, q] = MOTIVO[m] || [m, ''];
+        return `<span class="tag ${REL_OCULTA.has(m) ? 't-gray' : 't-no'}" title="${esc(q)}">${esc(rot)}</span>`;
+      }).join('');
       c.querySelector('.fa').innerHTML = audBotoes(id, st);
       ligarCartoes();
     } catch(e) { msg('a-msg', e.message); busy(b, false); }
@@ -1942,15 +2007,20 @@ async function relatorioDesvios(f, w){
   let its;
   try {
     its = await rpc('he_fotos', {p_token: S.token, p_de: f.de || null, p_ate: f.ate || null,
-                                 p_status: 'NOTIFICADO', p_so_sinal: false, p_limite: 200});
+                                 p_status: 'NOTIFICADO', p_so_sinal: false,
+                                 p_pessoa: f.pessoa || null, p_limite: 200});
   } catch(e) { w.close(); return msg('a-msg', e.message); }
-  if (!its || !its.length) { w.close(); return msg('a-msg',
-    'Nenhuma batida notificada nesse período. Marque "Notificar" nas que forem desvio e gere o relatório depois.'); }
+  if (!its || !its.length) { w.close(); return msg('a-msg', f.pessoa
+    ? 'Essa pessoa não tem nenhuma batida notificada no período escolhido. Amplie as datas ou tire o filtro de nome.'
+    : 'Nenhuma batida notificada nesse período. Marque "Notificar" nas que forem desvio e gere o relatório depois.'); }
 
   const porP = new Map();
   its.forEach(i => { const g = porP.get(i.pessoa_id) || {nome: i.nome, setor: i.setor, itens: []};
                      g.itens.push(i); porP.set(i.pessoa_id, g); });
   const agora = new Date().toLocaleString('pt-BR');
+  /* dossiê de uma pessoa só: o nome vem do próprio resultado, não do <select>,
+     para o cabeçalho nunca discordar do que está impresso abaixo. */
+  const alvo = f.pessoa && porP.size === 1 ? [...porP.values()][0].nome : '';
   const corpo = [...porP.values()].sort((a, b) => a.nome.localeCompare(b.nome)).map(g => `
     <section>
       <h2>${esc(g.nome)}${g.setor ? ' <small>' + esc(g.setor) + '</small>' : ''}</h2>
@@ -1962,7 +2032,7 @@ async function relatorioDesvios(f, w){
             <td>${i.momento === 'ENTRADA' ? 'Entrada' : 'Saída'}</td>
             <td>${hhmm(i.hora)}</td>
             <td class="w">${esc(i.endereco || 'não informado')}</td>
-            <td class="w">${(i.motivos || []).map(m => (MOTIVO[m] || [m])[0]).join('; ') || '—'}
+            <td class="w">${motivosDe(i, true).map(m => (MOTIVO[m] || [m])[0]).join('; ') || '—'}
               ${i.observacao ? '<br><i>' + esc(i.observacao) + '</i>' : ''}</td>
             <td>${i.thumb64 ? '<img src="data:image/jpeg;base64,' + i.thumb64 + '" alt="">' : '—'}</td>
           </tr>`).join('')}
@@ -1972,7 +2042,7 @@ async function relatorioDesvios(f, w){
 
   w.document.open();
   w.document.write(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
-    <title>Suspeita de desvios ${brD(f.de)} a ${brD(f.ate)}</title><style>
+    <title>${alvo ? 'Dossiê ' + esc(alvo) + ' — ' : 'Suspeita de desvios '}${brD(f.de)} a ${brD(f.ate)}</title><style>
     body{font:13px/1.45 system-ui,Segoe UI,sans-serif;color:#1A1D21;margin:26px;max-width:920px}
     h1{font-size:19px;margin:0 0 3px}
     .cab{color:#5A6472;font-size:12px;margin-bottom:20px}
@@ -1989,11 +2059,15 @@ async function relatorioDesvios(f, w){
     @media print{body{margin:12mm}}</style></head><body>
     <h1>Suspeita de desvios — registro de ponto</h1>
     <div class="cab">Período de ${brD(f.de)} a ${brD(f.ate)} · ${its.length} registro(s) ·
-      ${porP.size} colaborador(es) · emitido em ${agora} por ${esc(S.eu.nome)}</div>
+      ${alvo ? 'somente <b>' + esc(alvo) + '</b>' : porP.size + ' colaborador(es)'} ·
+      emitido em ${agora} por ${esc(S.eu.nome)}</div>
     ${corpo}
     <div class="aviso">As imagens e os locais vêm do próprio registro de ponto (Quark), da primeira e da
-      última batida de cada dia. A sinalização automática avalia luz e textura da imagem e <b>não</b>
-      identifica pessoas: cada item deste relatório foi conferido e marcado por uma pessoa, nominada acima.</div>
+      última batida de cada dia. A sinalização automática mede <b>luz, nitidez e o tamanho e a posição do
+      rosto</b> na imagem; ela <b>não reconhece quem</b> é a pessoa e <b>não usa cor de pele</b>. Quando o
+      detector não encontra rosto, nada é apontado por isso — a ausência de pessoa na foto, quando consta
+      acima, foi <b>afirmada por quem revisou</b>, olhando a imagem. Cada item deste relatório foi
+      conferido e marcado por uma pessoa, nominada acima.</div>
     </body></html>`);
   w.document.close();
   msg('a-msg', 'Relatório aberto em outra aba — use Imprimir / Salvar em PDF.', true);
