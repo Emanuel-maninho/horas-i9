@@ -231,6 +231,7 @@ tfoot td{font-weight:600;font-size:14px;border-top:2px solid var(--graphite);bor
 .fmeta .q{color:var(--steel);font-size:11.5px}
 .fmot{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
 .fobs{color:var(--ink2);font-size:11.5px;line-height:1.3}
+.sloc{font-style:italic;opacity:.75}
 .fobs:not(:empty){margin-top:6px;padding-left:6px;border-left:2px solid var(--rule)}
 .fa{display:flex;gap:6px;padding:0 10px 10px}
 .fa .btn{flex:1;padding:6px 8px;font-size:12px}
@@ -436,6 +437,7 @@ const CHEFIA = [...LIDER, 'diretor'];
    Mesma ideia da REV. de um projeto: a data e o que mudou, visivel no
    cabecalho. Entrada nova vai SEMPRE no topo; REV e' a primeira.           */
 const REVISOES = [
+  ['2026.11.23', 'Motivo escrito quando falta o local da batida, e aviso ao listar todas as batidas'],
   ['2026.11.22', 'Foto sem pessoa como desvio (afirmado por quem revisa), filtro por colaborador e dossiê individual'],
   ['2026.11.21b', 'Sinalização de foto por rosto (tamanho, corte) e fundo escuro; observação escrita na notificação'],
   ['2026.11.21', 'Auditoria de ponto: fotos e locais das batidas (entrada e saída), papel Diretoria'],
@@ -1789,6 +1791,16 @@ const motivosDe = (i, pdf) => [
   ...(i.motivos || []).filter(m => !(pdf && REL_OCULTA.has(m))),
   ...(i.motivos_rev || []),
 ];
+/* O LOCAL DA BATIDA, e quando nao ha, a razao — nunca em branco.
+   Medido em 23/11/2026 nas 2.367 fotos: 2.109 (89%) tem endereco. Das 258 que
+   nao tem, 229 nao possuem linha de local naquela hora e 29 possuem a linha com
+   o campo vazio no proprio Quark. Nessas 29 nao ha nada melhor a mostrar:
+   localidade, estado e cerca tambem vem NULL — conferido, zero fotos ganhariam
+   ao menos cidade/UF. Campo em branco num anexo de advertencia parece falha de
+   coleta; dizer qual dos dois casos e' o que se sabe de fato. */
+const localDe = i => i.endereco ? {txt: i.endereco, falta: false}
+  : i.tem_local ? {txt: 'o Quark registrou a batida sem endereço', falta: true}
+                : {txt: 'sem registro de local para esta batida', falta: true};
 const isoD = d => new Date(d.getTime() - d.getTimezoneOffset() * 6e4).toISOString().slice(0, 10);
 const brD  = s => !s ? '' : String(s).slice(8, 10) + '/' + String(s).slice(5, 7);
 const hhmm = s => !s ? '' : String(s).slice(0, 5);
@@ -1856,6 +1868,10 @@ async function vAuditoria(){
     <div class="card">
       <div class="sub">${its.length} foto${its.length > 1 ? 's' : ''}${its.length === 60
         ? ' — as 60 de maior nota; estreite o período para ver o resto' : ''}</div>
+      ${!f.so ? `<div class="note" style="background:#FFF4E0;color:#7A4B00;margin-top:8px">
+        Mostrando <b>todas as batidas</b> do período, inclusive as que o robô
+        <b>não</b> apontou — por isso aparece foto boa aqui. Marque
+        <b>“só as sinalizadas”</b> para voltar a ver apenas a fila de revisão.</div>` : ''}
       <div class="fgrid" style="margin-top:12px">${its.map(fotoCard).join('')}</div>
     </div>`}
     <div id="a-msg"></div>`;
@@ -1877,13 +1893,14 @@ function fotoCard(i){
   const img = i.thumb64
     ? `<img class="fthumb" src="data:image/jpeg;base64,${i.thumb64}" alt="${esc(i.nome)} — ${i.momento === 'ENTRADA' ? 'entrada' : 'saída'} de ${brD(i.data)} às ${hhmm(i.hora)}" data-id="${i.id}">`
     : `<div class="fthumb vazia">o Quark não devolveu a imagem</div>`;
-  const end = i.endereco || '';
+  const loc = localDe(i);
   return `<div class="fcard${cls}" id="fc-${i.id}">
     ${img}
     <div class="fmeta">
       <b>${esc(i.nome)}</b>
       <div class="q">${brD(i.data)} · ${i.momento === 'ENTRADA' ? 'entrada' : 'saída'} ${hhmm(i.hora)}${i.setor ? ' · ' + esc(i.setor) : ''}</div>
-      ${end ? `<div class="q" title="${esc(end)}">${esc(end.slice(0, 46))}${end.length > 46 ? '…' : ''}</div>` : ''}
+      <div class="q${loc.falta ? ' sloc' : ''}" title="${esc(loc.txt)}">${
+        esc(loc.txt.slice(0, 46))}${loc.txt.length > 46 ? '…' : ''}</div>
       <div class="fmot">${motivosDe(i).map(m => {
         const [rot, q] = MOTIVO[m] || [m, ''];
         /* o palpite da máquina é cinza; desvio medido ou afirmado é vermelho */
@@ -2031,7 +2048,8 @@ async function relatorioDesvios(f, w){
             <td>${brD(i.data)}</td>
             <td>${i.momento === 'ENTRADA' ? 'Entrada' : 'Saída'}</td>
             <td>${hhmm(i.hora)}</td>
-            <td class="w">${esc(i.endereco || 'não informado')}</td>
+            <td class="w">${i.endereco ? esc(i.endereco)
+              : '<i>' + esc(localDe(i).txt) + '</i>'}</td>
             <td class="w">${motivosDe(i, true).map(m => (MOTIVO[m] || [m])[0]).join('; ') || '—'}
               ${i.observacao ? '<br><i>' + esc(i.observacao) + '</i>' : ''}</td>
             <td>${i.thumb64 ? '<img src="data:image/jpeg;base64,' + i.thumb64 + '" alt="">' : '—'}</td>
