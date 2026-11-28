@@ -412,12 +412,27 @@ const API = (window.HE_API || SUPABASE_URL + '/rest/v1');
 /* ════ CONVENÇÃO COLETIVA — 1ª faixa de HE (dia útil, 1ª e 2ª hora) ════
    A partir da competência abaixo (AAAA-MM) o adicional passa de 50% para 52%.
    Competências anteriores continuam a 50%, para não alterar demonstrativos já fechados.
-   O banco (função he_resumo_mes / crédito de folga) precisa usar a MESMA regra. */
-const HE1_VIGENCIA = '2026-11';
+   O banco (função he_resumo_mes / crédito de folga) precisa usar a MESMA regra.
+   Out/2026: o RH antecipou o 52% enquanto a convenção estava em homologação — a
+   folha de outubro/2026 já saiu toda na rubrica 1.052 "Horas Extras 52%", então a
+   vigência aqui é 2026-10 e não 2026-11 (conferido no espelho da folha, 25/11/2026). */
+const HE1_VIGENCIA = '2026-10';
 const fat50 = (mes) => ((mes || S.mes) >= HE1_VIGENCIA ? 1.52 : 1.5);
 const pct50 = (mes) => Math.round((fat50(mes) - 1) * 100) + '%';
 const fmtF = f => f.toFixed(2).replace('.', ',');
 const hmF = f => hm(60 * f);   // 1,52 → 1h31
+
+/* ════ HORA NOTURNA REDUZIDA — art. 73, §1 da CLT ════
+   Entre 22h e 5h, 52min30 de trabalho valem 1 hora. Então as horas noturnas
+   REAIS do ponto são multiplicadas por 60/52,5 (+14,29%) para dar a referência
+   que vai ao holerite, e o adicional de 20% incide sobre essa referência.
+   Confirmado no espelho da folha de out/2026, ao minuto: 1h03 real -> 1,12 de
+   referência; 6h07 -> 6,59 (as referências da folha são hh,mm, não decimal).
+   Liberado pelo Emanuel em 28/11/2026 — antes disso o painel pagava sobre a hora
+   real e ficava ~14% abaixo da folha.
+   Só o VALOR usa a redução: as horas mostradas continuam as do ponto. */
+const NOT_RED = 60 / 52.5;
+const notRef = min => Math.round((min || 0) * NOT_RED);   // minutos reais → minutos de referência
 
 /* ════ utilidades ════ */
 const $ = id => document.getElementById(id);
@@ -753,10 +768,14 @@ function diaHTML(d, extra){
     <div class="hs">${it.map(i=>`<div>${i.r?hm(i.r):'&nbsp;'}</div>`).join('')}</div>
     <div class="h">${it.map(i=>`<div class="${i.v>0?'plus':'minus'}">${i.v>0?'+':''}${hm(i.v)}</div>`).join('')}</div></div>`;
 }
+/* `a` é o string_agg do he_dias ("autorizada 17:30–19:30", podendo ter mais de um
+   registro no mesmo dia). Testa por registro, não só o primeiro, e a negativa
+   entra desde a migração _24 — antes ela nem saía do banco. */
 function tagAut(a){
   if (!a) return '';
-  if (a.startsWith('autorizada')) return `<span class="tag t-ok">Autorizada</span>`;
-  if (a.startsWith('solicitada')) return `<span class="tag t-wait">Aguardando</span>`;
+  if (/(^|, )autorizada/.test(a)) return `<span class="tag t-ok">Autorizada</span>`;
+  if (/(^|, )negada/.test(a))     return `<span class="tag t-no">HE não autorizada</span>`;
+  if (/(^|, )solicitada/.test(a)) return `<span class="tag t-wait">Aguardando</span>`;
   return '';
 }
 
@@ -792,8 +811,8 @@ async function vMinhas(){
       ${sols.length?sols.map(s=>`
         <div class="day"><div class="d"><b>${s.data.slice(8)}</b><span>${DIA[new Date(s.data+'T12:00').getDay()]}</span></div>
           <div class="c">${s.inicio.slice(0,5)}–${s.fim.slice(0,5)} · ${esc(s.motivo)}
-            <div class="x">${s.status==='autorizada'?'Autorizada por '+esc(s.decisor||''):s.status==='negada'?'Negada'+(s.obs_decisao?': '+esc(s.obs_decisao):''):s.status==='cancelada'?'Cancelada':'Aguardando seu superior'}</div></div>
-          <div>${s.status==='autorizada'?'<span class="tag t-ok">Autorizada</span>':s.status==='negada'?'<span class="tag t-no">Negada</span>':s.status==='cancelada'?'<span class="tag t-gray">Cancelada</span>':`<span class="tag t-wait">Aguardando</span> <button class="btn s" data-cancel="${s.id}">Cancelar</button>`}</div>
+            <div class="x">${s.status==='autorizada'?'Autorizada por '+esc(s.decisor||''):s.status==='negada'?'Não autorizada'+(s.decisor?' por '+esc(s.decisor):'')+(s.obs_decisao?': '+esc(s.obs_decisao):''):s.status==='cancelada'?'Cancelada':'Aguardando seu superior'}</div></div>
+          <div>${s.status==='autorizada'?'<span class="tag t-ok">Autorizada</span>':s.status==='negada'?'<span class="tag t-no">Não autorizada</span>':s.status==='cancelada'?'<span class="tag t-gray">Cancelada</span>':`<span class="tag t-wait">Aguardando</span> <button class="btn s" data-cancel="${s.id}">Cancelar</button>`}</div>
         </div>`).join(''):'<p class="muted" style="margin-top:8px">Nenhum pedido neste mês.</p>'}
     </div>
     <div class="card">
@@ -807,25 +826,40 @@ async function vMinhas(){
   });
 }
 
-/* ── formulário de HE (pedido próprio ou autorização direta do líder) ── */
-function formHE(pessoa){
-  const hoje = diaLocal();
-  modal(`<div class="md-h"><h2 style="margin:0">${pessoa?'Autorizar HE':'Solicitar hora extra'}</h2><button class="x-btn" data-close>×</button></div>
+/* ── formulário de HE (pedido próprio, autorização direta ou NÃO autorização) ──
+   o = {negar, data, volta}. O painel nasceu só para autorizar ANTES, com pedido
+   do colaborador; na prática a hora é feita primeiro e o líder decide depois —
+   por isso existe o lado negativo (migrações _24/_25). Negar NÃO apaga hora: o
+   robô leva o dia ao Quark como "Não aprovado" e a justificativa de lá sai com o
+   nome do líder, as horas como estavam e o texto que ele escreveu. */
+function formHE(pessoa, o){
+  o = o || {};
+  const neg = !!o.negar;
+  modal(`<div class="md-h"><h2 style="margin:0">${neg?'Não autorizar HE':pessoa?'Autorizar HE':'Solicitar hora extra'}</h2><button class="x-btn" data-close>×</button></div>
     ${pessoa?`<p class="sub">${esc(pessoa.nome)}</p>`:'<p class="sub">Seu superior imediato recebe o pedido para autorizar.</p>'}
-    <label for="h-data">Data</label><input class="in" type="date" id="h-data" value="${hoje}">
-    <div class="row"><div><label for="h-ini">Início previsto</label><input class="in" type="time" id="h-ini" value="17:30"></div>
-      <div><label for="h-fim">Fim previsto</label><input class="in" type="time" id="h-fim" value="19:30"></div></div>
-    <label for="h-mot">Motivo</label><textarea class="in" id="h-mot" rows="3" placeholder="Ex.: parada programada do cliente, nota 4560795"></textarea>
-    <button class="btn p w" id="h-ok">${pessoa?'Autorizar':'Enviar pedido'}</button><div id="h-m"></div>`);
+    ${neg?`<div class="expl">A hora já foi feita, então ela <b>continua contando como está no ponto</b> — negar aqui não apaga hora de ninguém.
+      O que fica registrado é a sua decisão, e o robô leva o dia ao Quark como <b>Não aprovado</b>, com uma justificativa que vai com
+      o seu nome, as horas como estavam hoje e o motivo que você escrever. Daí para frente são dois caminhos: o colaborador pede
+      inclusão de ponto e o dia deixa de gerar HE, ou o RH não paga e anexa esta negativa. O horário abaixo é só referência do
+      registro — o Quark decide o dia inteiro.</div>`:''}
+    <label for="h-data">Data</label><input class="in" type="date" id="h-data" value="${o.data || diaLocal()}">
+    <div class="row"><div><label for="h-ini">Início${neg?'':' previsto'}</label><input class="in" type="time" id="h-ini" value="17:30"></div>
+      <div><label for="h-fim">Fim${neg?'':' previsto'}</label><input class="in" type="time" id="h-fim" value="19:30"></div></div>
+    <label for="h-mot">Motivo${neg?' da não autorização':''}</label><textarea class="in" id="h-mot" rows="3" placeholder="${neg?'Ex.: ficou sem combinar antes; o serviço não exigia passar das 17h30':'Ex.: parada programada do cliente, nota 4560795'}"></textarea>
+    ${neg?'<p class="sub">Este texto vai inteiro para a justificativa no Quark (máx. 500 caracteres lá). Escreva pensando em quem for ler meses depois.</p>':''}
+    <button class="btn ${neg?'no':'p'} w" id="h-ok">${neg?'Não autorizar':pessoa?'Autorizar':'Enviar pedido'}</button><div id="h-m"></div>`);
   $('h-ok').onclick = async () => {
     const a = {p_token:S.token, p_data:$('h-data').value, p_inicio:$('h-ini').value, p_fim:$('h-fim').value, p_motivo:$('h-mot').value.trim()};
     if (!a.p_data || !a.p_inicio || !a.p_fim) return msg('h-m','Preencha data e horários.');
-    if (!a.p_motivo) return msg('h-m','Informe o motivo.');
+    if (!a.p_motivo) return msg('h-m', neg?'Informe o motivo. O Quark exige justificativa para não aprovar.':'Informe o motivo.');
     busy($('h-ok'),true);
     try {
-      if (pessoa) await rpc('he_autorizar_direto', {...a, p_pessoa:pessoa.pessoa_id});
-      else await rpc('he_solicitar', a);
-      fecharModal(); carregar();
+      if (neg)          await rpc('he_nao_autorizar',    {...a, p_pessoa:pessoa.pessoa_id});
+      else if (pessoa)  await rpc('he_autorizar_direto', {...a, p_pessoa:pessoa.pessoa_id});
+      else              await rpc('he_solicitar', a);
+      fecharModal();
+      const pr = carregar();
+      if (o.volta && pessoa) pr.then(() => detalhe(S.resumo.find(r=>r.pessoa_id===pessoa.pessoa_id) || pessoa));
     } catch(e){ msg('h-m', e.message); busy($('h-ok'),false); }
   };
 }
@@ -847,13 +881,13 @@ function vEquipe(){
           <td class="l">${esc(r.nome)}<div class="sub">${PAPEL[r.papel]}${r.cargo?' · '+esc(r.cargo):''}${r.superior?' · '+esc(r.superior):''}</div></td>
           <td data-l="HE feitas">${hm(r.he50+r.he75+r.he100)}</td><td data-l="Folga gerada">${hm(r.normalizado)}</td><td data-l="Compensado">${hm(r.compensado)}</td>
           <td data-l="Saldo" class="${r.saldo>0?'plus':''}"><b>${hm(r.saldo)}</b></td>
-          <td class="l alertas">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.aud_dias?`<span class="tag t-aud">${r.aud_dias} auditar Quark</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
+          <td class="l alertas">${r.dias_sem_aut?`<span class="tag t-no">${r.dias_sem_aut} sem autorização</span> `:''}${r.dias_negados?`<span class="tag t-no">${r.dias_negados} HE não autorizada${r.dias_negados>1?'s':''}</span> `:''}${r.aud_dias?`<span class="tag t-aud">${r.aud_dias} auditar Quark</span> `:''}${r.intersticios?`<span class="tag t-wait">${r.intersticios} interstício</span> `:''}${r.solicitacoes_pendentes?`<span class="tag t-gray">${r.solicitacoes_pendentes} pedido</span> `:''}${r.incompletos?`<span class="tag t-inc">${r.incompletos} ponto incompleto</span> `:''}${r.acion_sugeridos?`<span class="tag t-sa">${r.acion_sugeridos} acionamento a confirmar</span> `:''}${r.sa_min?`<span class="tag t-sa">🌙 ${hm(r.sa_min)}</span>`:''}</td></tr>`;
   const corpo = usaFiltro()
     ? porSetor(lista).map(([k,ps]) => cabGrupo('eq:'+k, 7, k, `${ps.length} pessoas · folga gerada ${hm(ps.reduce((s,r)=>s+r.normalizado,0))} · a tirar ${hm(ps.reduce((s,r)=>s+r.saldo,0))}`) + ps.map(r => linhaDoGrupo('eq:'+k, linhaEq(r))).join('')).join('')
     : lista.map(linhaEq).join('');
   const tot = k => alvo.reduce((s,r)=>s+(r[k]||0),0);
   const heFeitas = alvo.reduce((s,r)=>s+r.he50+r.he75+r.he100,0);
-  const semAut = tot('dias_sem_aut'), aud = tot('aud_dias');
+  const semAut = tot('dias_sem_aut'), aud = tot('aud_dias'), negados = tot('dias_negados');
   const selbar = `<div class="selbar">
       ${S.grupos && S.grupos.length?`<select class="in" id="g-sel" aria-label="Grupo"><option value="">${temRH(S.eu)?'Todas as pessoas':'Toda a equipe'}</option>
         ${S.grupos.map(x=>`<option value="${x.id}" ${x.id===S.grupoId?'selected':''}>${esc(x.nome)} (${x.pessoas.length})</option>`).join('')}</select>`:''}
@@ -878,7 +912,7 @@ function vEquipe(){
       <div class="st"><div class="l">HE feitas (sem fator)</div><div class="v">${hm(heFeitas)}</div><div class="l">horas reais além da jornada</div></div>
       <div class="st"><div class="l">Folga gerada</div><div class="v">${hm(tot('normalizado'))}</div><div class="l">≈ ${(tot('normalizado')/528).toFixed(1).replace('.',',')} dias de 8h48</div></div>
       <div class="st"><div class="l">Folga ainda a tirar</div><div class="v plus">${hm(tot('saldo'))}</div></div>
-      <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div>${aud?`<div class="l">+ ${aud} dia${aud>1?'s':''} para auditar no Quark</div>`:''}</div>
+      <div class="st"><div class="l">Dias com HE sem autorização</div><div class="v ${semAut?'plus':''}">${semAut}</div>${aud?`<div class="l">+ ${aud} dia${aud>1?'s':''} para auditar no Quark</div>`:''}${negados?`<div class="l">+ ${negados} já decidido${negados>1?'s':''} como HE não autorizada</div>`:''}</div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
       <h2 style="margin:0">${temRH(S.eu)?'Pessoas':'Minha equipe'} no mês</h2>
@@ -990,31 +1024,51 @@ async function detalhe(p){
     const podeAut = LIDER.includes(S.eu.papel);
     const ev = dias.filter(d => diaRelevante(d) || /interst/i.test(d.observacao||''));
     const fmtDH = t => t.slice(8,10)+'/'+t.slice(5,7)+' '+t.slice(11,16);
+    /* mesma conta da tag "Sem autorização" do diaHTML: HE apurada, fora do que
+       veio de acionamento, sem decisão nenhuma e sem erro de tolerância. */
+    const heDia = d => d.he50+d.he75+d.he100-(d.acion_min||0);
+    const semDec = d => !d.autorizacao && !d.aud_tol && heDia(d) > 0;
+    const extraDia = d => (d.sugestao&&podeAut?`<div class="sug">🌙 Batida na noite de sobreaviso (${fmtDH(d.sugestao.split('|')[0])} a ${fmtDH(d.sugestao.split('|')[1])}). Foi acionamento?
+          <button class="btn s" data-sug="${d.data}|${d.sugestao}">Registrar acionamento</button></div>`:'')
+      + (podeAut&&semDec(d)?`<div class="sug">${hm(heDia(d))} de HE neste dia e nenhuma decisão registrada.
+          <button class="btn ok s" data-dok="${d.data}">Autorizar</button>
+          <button class="btn no s" data-dno="${d.data}">Não autorizar</button></div>`:'');
     modal(`<div class="md-h"><h2 style="margin:0">${esc(p.nome)}</h2><button class="x-btn" data-close>×</button></div>
       <p class="sub">HE feitas: <b>${hm(p.he50+p.he75+p.he100)}</b> · folga gerada ${hm(p.normalizado)} · compensado ${hm(p.compensado)} · saldo de folga <b>${hm(p.saldo)}</b></p>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
-        ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button><button class="btn s" id="b-acn">+ Acionamento de sobreaviso</button>':''}
+        ${podeAut?'<button class="btn p s" id="b-aut">+ Autorizar HE</button><button class="btn no s" id="b-nao">+ Não autorizar HE</button><button class="btn s" id="b-acn">+ Acionamento de sobreaviso</button>':''}
         <button class="btn s" id="b-imp">Imprimir relatório do mês</button></div>
       <h3 style="margin-top:10px">Dias com HE ou compensação</h3>
       ${dias.some(d=>d.aud_tol)?`<div class="note" style="background:#EFE3FA;color:#5B2A86">⚠ ${dias.filter(d=>d.aud_tol).length} dia(s) dentro da tolerância de ponto em que o Quark apontou HE (${hm(dias.reduce((s,d)=>s+(d.aud_tol||0),0))}). Peça ao RH para auditar no Quark. Até lá, essas horas seguem contando como estão no ponto.</div>`:''}
-      ${ev.length?cabDias():''}${ev.map(d=>diaHTML(d, d.sugestao&&podeAut?`<div class="sug">🌙 Batida na noite de sobreaviso (${fmtDH(d.sugestao.split('|')[0])} a ${fmtDH(d.sugestao.split('|')[1])}). Foi acionamento?
-          <button class="btn s" data-sug="${d.data}|${d.sugestao}">Registrar acionamento</button></div>`:'')).join('')||'<p class="muted">Nada neste mês.</p>'}
+      ${ev.length?cabDias():''}${ev.map(d=>diaHTML(d, extraDia(d))).join('')||'<p class="muted">Nada neste mês.</p>'}
       ${acs.length?`<h3 style="margin-top:14px">Acionamentos de sobreaviso</h3>${acs.map(a=>`<div class="pend"><b>${fmtDH(a.inicio)} → ${fmtDH(a.fim)}</b>
         <span class="tag t-sa">noite de ${a.data.split('-').reverse().slice(0,2).join('/')}</span>
         <div class="sub">${esc(a.motivo||'sem motivo informado')}${a.registrado_por?' · registrado por '+esc(a.registrado_por):''}</div>
         ${podeAut?`<div class="a"><button class="btn no s" data-acx="${a.id}">Excluir</button></div>`:''}</div>`).join('')}`:''}
-      <h3 style="margin-top:14px">Autorizações do mês</h3>
+      <h3 style="margin-top:14px">Autorizações e negativas do mês</h3>
       ${minhas.map(a=>`<div class="pend"><b>${a.data.split('-').reverse().slice(0,2).join('/')} · ${a.inicio.slice(0,5)}–${a.fim.slice(0,5)}</b>
-        <span class="tag ${a.status==='autorizada'?'t-ok':a.status==='negada'?'t-no':a.status==='solicitada'?'t-wait':'t-gray'}">${a.status}</span>
+        <span class="tag ${a.status==='autorizada'?'t-ok':a.status==='negada'?'t-no':a.status==='solicitada'?'t-wait':'t-gray'}">${a.status==='negada'?'não autorizada':a.status}</span>
         <div class="sub">${esc(a.motivo)}${a.decisor?' · por '+esc(a.decisor):''}</div>
+        ${a.status==='negada'?`<div class="sub">${a.he_min_decisao?'HE de <b>'+hm(a.he_min_decisao)+'</b> apurada no dia quando foi negada. ':''}${
+          a.quark_espelhado_em?'Consta no Quark como não aprovada desde '+a.quark_espelhado_em.slice(8,10)+'/'+a.quark_espelhado_em.slice(5,7)+'.'
+          :a.quark_erro?'<span class="tag t-no">não chegou ao Quark</span> '+esc(a.quark_erro)
+          :'<span class="tag t-wait">aguardando o robô levar ao Quark</span>'}</div>`:''}
+        ${podeAut&&(a.status==='autorizada'||a.status==='negada')?`<div class="a"><button class="btn s" data-dcx="${a.id}">Cancelar decisão</button></div>`:''}
         ${podeAut&&a.status==='autorizada'?`<label>Atividade impactada pela compensação (se houver)</label>
           <div style="display:flex;gap:6px"><input class="in" data-imp="${a.id}" value="${esc(a.impacto||'')}" placeholder="Ex.: preventiva da EE Carapina adiada">
           <button class="btn s" data-imps="${a.id}">Salvar</button></div>`:(a.impacto?`<div class="sub">Impacto: ${esc(a.impacto)}</div>`:'')}
       </div>`).join('')||'<p class="muted">Nenhuma neste mês.</p>'}
       <div id="d-m"></div>`);
     if (podeAut) {
-      $('b-aut').onclick = () => formHE(p);
+      $('b-aut').onclick = () => formHE(p, {volta:true});
+      $('b-nao').onclick = () => formHE(p, {volta:true, negar:true});
       $('b-acn').onclick = () => formAcion(p);
+      document.querySelectorAll('[data-dok]').forEach(b => b.onclick = () => formHE(p, {volta:true, data:b.dataset.dok}));
+      document.querySelectorAll('[data-dno]').forEach(b => b.onclick = () => formHE(p, {volta:true, negar:true, data:b.dataset.dno}));
+      document.querySelectorAll('[data-dcx]').forEach(b => b.onclick = async () => {
+        if (!confirm('Cancelar esta decisão? O dia volta a ficar sem decisão registrada aqui.\n\nIsso NÃO desfaz o que o robô já gravou no Quark: se o dia já foi aprovado ou não aprovado lá, alguém precisa tratá-lo no Quark, em Frequência > Horas Extras > Gerenciar.')) return;
+        try { await rpc('he_cancelar_decisao', {p_token:S.token, p_id:+b.dataset.dcx}); carregar().then(()=>detalhe(p)); }
+        catch(e){ msg('d-m', e.message); } });
       document.querySelectorAll('[data-sug]').forEach(b => b.onclick = () => {
         const [noite, ini, fim] = b.dataset.sug.split('|'); formAcion(p, {noite, ini, fim}); });
       document.querySelectorAll('[data-acx]').forEach(b => b.onclick = async () => {
@@ -1069,22 +1123,26 @@ function imprimir(p, dias, auts){
     .filter(Boolean).join(' · ');
   const sa = p.sa_min || 0;
   const hb = p.hora_base != null ? +p.hora_base : null;
+  const hbsa = p.hora_base_sa != null ? +p.hora_base_sa : null;   /* sobreaviso tem base própria: salário/220, sem periculosidade */
   const not = (p.noturna||0) + (p.hn||0);
   let fin = '';
   if (hb) {
     const r = rubricas(p, S.ordem);
-    const v = {he50:r.he50/60*hb*fat50(), he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:not/60*hb*0.2, sa:sa/60*hb/3};
+    /* o noturno é pago sobre a hora noturna REDUZIDA (52min30 = 1h, art. 73, §1) */
+    const v = {he50:r.he50/60*hb*fat50(), he75:r.he75/60*hb*1.75, he100:r.he100/60*hb*2, not:notRef(not)/60*hb*0.2, sa:sa/60*(hbsa||0)/3};
     const nomeOrd = {'50_primeiro':`abater primeiro as de ${pct50()}`,'100_primeiro':'abater primeiro as de 100%','proporcional':'abatimento proporcional'}[S.ordem];
-    fin = `<h3>Valores a pagar em folha (hora base ${brl(hb)})</h3>
+    fin = `<h3>Valores a pagar em folha (hora base ${brl(hb)}${sa?` · hora base do sobreaviso ${hbsa?brl(hbsa):'não cadastrada'}`:''})</h3>
       <table><thead><tr><th class="l">Rubrica</th><th>Horas</th><th>Fator</th><th>Valor</th></tr></thead><tbody>
       <tr><td class="l">Horas extras ${pct50()} não compensadas</td><td>${hm(r.he50)}</td><td>${fmtF(fat50())}</td><td>${brl(v.he50)}</td></tr>
       <tr><td class="l">Horas extras 75% não compensadas</td><td>${hm(r.he75)}</td><td>1,75</td><td>${brl(v.he75)}</td></tr>
       <tr><td class="l">Horas extras 100% não compensadas</td><td>${hm(r.he100)}</td><td>2,00</td><td>${brl(v.he100)}</td></tr>
-      <tr><td class="l">Adicional noturno</td><td>${hm(not)}</td><td>0,20</td><td>${brl(v.not)}</td></tr>
-      ${sa?`<tr><td class="l">Sobreaviso</td><td>${hm(sa)}</td><td>1/3</td><td>${brl(v.sa)}</td></tr>`:''}
+      <tr><td class="l">Adicional noturno${not?' <span style="font-weight:400">(referência '+hm(notRef(not))+', hora noturna de 52min30)</span>':''}</td><td>${hm(not)}</td><td>0,20</td><td>${brl(v.not)}</td></tr>
+      ${sa?`<tr><td class="l">Sobreaviso${hbsa?'':' — hora base do sobreaviso não cadastrada'}</td><td>${hm(sa)}</td><td>1/3</td><td>${hbsa?brl(v.sa):'—'}</td></tr>`:''}
       <tr><th class="l">Total a pagar</th><th></th><th></th><th>${brl(v.he50+v.he75+v.he100+v.not+v.sa)}</th></tr>
       </tbody></table>
-      <p class="nota">Critério de compensação: ${nomeOrd}.</p>`;
+      <p class="nota">Critério de compensação: ${nomeOrd}.</p>
+      ${not?`<p class="nota">Adicional noturno: entre 22h e 5h, cada 52min30 trabalhados contam como 1 hora (art. 73, §1 da CLT). Por isso a coluna "Horas" mostra o tempo do ponto e o valor é calculado sobre a referência de ${hm(notRef(not))}, a 20% da hora base.</p>`:''}
+      ${sa?`<p class="nota">O sobreaviso usa hora base própria (salário ÷ 220), sem o adicional de periculosidade — Súmula 132, II do TST. As horas extras e o adicional noturno usam a hora base com periculosidade e insalubridade.</p>`:''}`;
   }
   const mesCurto = new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'2-digit',year:'numeric'});
   $('print').innerHTML = `<div class="rp">
@@ -1115,6 +1173,14 @@ function imprimir(p, dias, auts){
       ${auts.filter(a=>a.status==='autorizada').map(a=>`<tr><td class="l">${dt(a.data)}</td><td class="l">${a.inicio.slice(0,5)}–${a.fim.slice(0,5)}</td><td class="l">${esc(a.motivo)}</td>
         <td class="l">${esc(a.decisor||'')}</td></tr>`).join('')}
     </tbody></table>`:''}
+    ${auts.filter(a=>a.status==='negada').length?`<h3>Horas extras não autorizadas pelo superior</h3>
+    <table><thead><tr><th class="l">Data</th><th class="l">HE do dia</th><th class="l">Motivo da não autorização</th><th class="l">Decidido por</th></tr></thead><tbody>
+      ${auts.filter(a=>a.status==='negada').map(a=>`<tr><td class="l">${dt(a.data)}</td><td class="l">${a.he_min_decisao?hm(a.he_min_decisao):'—'}</td>
+        <td class="l">${esc(a.motivo)}</td><td class="l">${esc(a.decisor||'')}</td></tr>`).join('')}
+    </tbody></table>
+    <p class="nota">As horas destes dias continuam lançadas acima, como estão no registro de ponto: a não autorização é decisão do superior
+      imediato e fica registrada também no ponto eletrônico (Quark), não é desconto automático. A regularização é por inclusão de ponto
+      ou por decisão do RH, com esta negativa anexada. "HE do dia" é o que estava apurado quando a decisão foi tomada.</p>`:''}
     <p class="decl">Declaro ter recebido este demonstrativo e conferido as informações, extraídas do registro eletrônico de ponto da competência ${esc(mesCurto)}.</p>
     <div class="obs">Observações do colaborador:<div></div><div></div></div>
     <div class="ass"><div>Colaborador<br><span>data: ____/____/______</span></div><div>Superior imediato</div><div>Recursos Humanos</div></div>
@@ -1161,7 +1227,7 @@ function manualHTML(papel, rhFlag){
         <tr><td>1h em domingo ou feriado</td><td>2h00</td></tr></table>
       <p>O que não for compensado até o fim do mês é <b>pago na folha</b>. Nada passa para o mês seguinte.</p>
       <p>Em <b>Meus dias no ponto</b>, cada dia mostra as marcações e o que gerou. As etiquetas:</p>
-      <ul><li>${T('Autorizada','t-ok')} ${T('Sem autorização','t-no')}: se a hora extra tinha pedido autorizado.</li>
+      <ul><li>${T('Autorizada','t-ok')} ${T('Sem autorização','t-no')} ${T('HE não autorizada','t-no')}: ${T('Sem autorização','t-no')} é dia que ninguém decidiu ainda; ${T('HE não autorizada','t-no')} é dia que o seu superior decidiu <b>não</b> autorizar — as horas continuam no demonstrativo, mas a negativa fica registrada aqui e no ponto eletrônico. Se discordar, fale com ele.</li>
         <li>${T('⚠ Ponto incompleto','t-inc')} ${T('⚠ Sem marcação','t-inc')}: faltou batida. <b>Justifique no Quark</b> e avise seu superior. Enquanto não for acertado, as horas que faltam contam como horas a menos.</li>
         <li>${T('🌙 Sobreaviso','t-sa')} ${T('Acionamento de sobreaviso','t-sa')} ${T('Descanso de 11h','t-gray')}: veja a seção Sobreaviso.</li></ul>
       <p>Os horários vêm do ponto eletrônico e não podem ser alterados no app.</p>`, papel==='colaborador'),
@@ -1172,7 +1238,7 @@ function manualHTML(papel, rhFlag){
         <li>Acompanhe: ${T('Aguardando','t-wait')} ${T('Autorizada','t-ok')} ${T('Negada','t-no')}. Enquanto aguarda, dá para ${B('Cancelar')}.</li></ol>`),
     sec('5. Sobreaviso (contrato CESAN)', `
       <p>Quem está na escala fica <b>de sobreaviso à noite</b>: das 17:30 até as 07:30 do dia seguinte. No fim de semana, a dupla de plantão trabalha das 07:30 às 17:30 e fica de sobreaviso à noite.</p>
-      <ul><li>As horas de sobreaviso <b>sem trabalho</b> são pagas a 1/3 da hora.</li>
+      <ul><li>As horas de sobreaviso <b>sem trabalho</b> são pagas a <b>1/3 da hora</b> (art. 244, §2 da CLT). Essa hora é o <b>salário ÷ 220 sem o adicional de periculosidade</b>: durante o sobreaviso a pessoa não está em condição de risco (Súmula 132, II do TST), então a base é menor do que a da hora extra.</li>
         <li>Se for <b>acionado</b>, o tempo trabalhado vira <b>hora extra</b> do dia da escala e deixa de contar como sobreaviso. Ao terminar, volta a ser sobreaviso até as 07:30.</li>
         <li>No dia seguinte a um acionamento, a jornada fica <b>abonada até 11h depois</b> do fim do acionamento (descanso obrigatório).</li>
         <li>As horas de acionamento aparecem separadas: ${T('Acionamento de sobreaviso 00:11–05:56','t-sa')}.</li></ul>`),
@@ -1180,12 +1246,15 @@ function manualHTML(papel, rhFlag){
   if (lider) partes.push(
     sec('6. Aba Equipe', `
       <p>Mostra só a sua equipe e as equipes abaixo. O número vermelho na aba indica pedidos esperando decisão.</p>
-      <ul><li><b>Pedidos para decidir:</b> ${B('Autorizar','ok')} ou ${B('Negar','no')}.</li>
-        <li><b>Alertas por pessoa:</b> ${T('sem autorização','t-no')} ${T('interstício','t-wait')} ${T('pedido','t-gray')} ${T('ponto incompleto','t-inc')} ${T('acionamento a confirmar','t-sa')} ${T('auditar Quark','t-aud')}.</li>
+      <ul><li><b>Pedidos para decidir:</b> ${B('Autorizar','ok')} ou ${B('Negar','no')}. Isso vale para quem pediu <b>antes</b>. Para a hora que já foi feita sem pedido, a decisão é dia a dia, no nome da pessoa (abaixo).</li>
+        <li><b>Alertas por pessoa:</b> ${T('sem autorização','t-no')} ${T('HE não autorizada','t-no')} ${T('interstício','t-wait')} ${T('pedido','t-gray')} ${T('ponto incompleto','t-inc')} ${T('acionamento a confirmar','t-sa')} ${T('auditar Quark','t-aud')}.</li>
         <li><b>Selecionar e grupos:</b> marque as caixinhas na tabela da Equipe e os indicadores do topo passam a somar só as pessoas marcadas. Use <b>Salvar como grupo</b> (ex.: um grupo por contrato) e depois é só escolher o grupo no menu. Esqueceu alguém? Marque a pessoa e use <b>Adicionar a um grupo</b>; com <b>Mover</b> ela sai dos outros grupos. Só você vê os seus grupos.</li>
         <li>${T('⚠ Auditar Quark – erro de tolerância','t-aud')}: as marcações do dia estão dentro da tolerância do RH (até 5 min por marcação, 10 min no dia, almoço cumprido), mas o Quark apontou HE. Peça ao RH para auditar. O app não muda o número: segue o Quark até ele ser corrigido.</li>
         <li>Toque no nome para ver os dias. Ali:
-          <ul><li>${B('+ Autorizar HE','p')} registra uma HE já combinada ou regulariza dia passado (não muda horas, só registra quem autorizou e por quê).</li>
+          <ul><li>Cada dia com HE e sem decisão traz ${B('Autorizar','ok')} e ${B('Não autorizar','no')} já com a data preenchida. É o caminho normal: na prática a hora é feita primeiro e a decisão vem depois.</li>
+            <li>${B('+ Autorizar HE','p')} registra uma HE já combinada ou regulariza dia passado (não muda horas, só registra quem autorizou e por quê).</li>
+            <li>${B('+ Não autorizar HE','no')} registra que você <b>não</b> autoriza a HE daquele dia. <b>Não apaga hora nenhuma</b> — o ponto continua como está. O que acontece é: fica registrado com o seu nome, o motivo e as horas como estavam; o robô leva o dia ao ponto eletrônico (Quark) como <b>não aprovado</b> com essa mesma justificativa; e o RH vê isso no fechamento. Daí a regularização é por inclusão de ponto que zere a HE do dia, ou pelo RH não pagar anexando a sua negativa. O motivo é obrigatório porque o Quark exige justificativa.</li>
+            <li>${B('Cancelar decisão')} desfaz uma autorização ou uma negativa e devolve o dia a sem decisão — <b>aqui</b>. O que o robô já gravou no Quark continua lá até alguém tratar o dia no Quark.</li>
             <li>${B('+ Acionamento de sobreaviso')} lança um acionamento. Quando há batida na noite de escala, o app sugere: ${B('Registrar acionamento')} já vem com o horário do ponto.</li>
             <li>${B('Imprimir relatório do mês')} gera o demonstrativo para assinatura (ou PDF).</li>
             <li><b>Atividade impactada</b>: anote o que deixou de ser feito na folga.</li></ul></li>
@@ -1201,6 +1270,8 @@ function manualHTML(papel, rhFlag){
     sec('8. RH e administração', `
       <ul><li><b>Filtros:</b> I9 Matriz, I9 Filial, Fio Forte ou Todos; em I9 Matriz, <b>Só Engenharia</b>. Listas agrupadas por setor (toque no setor para recolher).</li>
         <li><b>Fechamento RH:</b> escolha o mês e a <b>ordem de abatimento</b>; confira por pessoa HE por faixa, compensado, noturno e sobreaviso; ${B('Exportar CSV')} leva à folha (traz o acionamento separado por faixa).</li>
+        <li><b>Adicional noturno:</b> a coluna traz as horas do ponto e, embaixo, a <b>referência</b> — cada 52min30 entre 22h e 5h valem 1 hora (art. 73, §1 da CLT), e os 20% incidem sobre a referência, não sobre a hora do ponto. O CSV traz as duas colunas, para amarrar com a rubrica da folha.</li>
+        <li><b>HE não autorizada pelo líder:</b> quando algum líder não autoriza a HE de um dia, aparece um aviso vermelho abaixo da tabela, com as pessoas, as horas e o R$ equivalente (o CSV traz as mesmas três colunas). <b>Essas horas continuam somadas no fechamento</b>, porque o painel espelha o ponto e a negativa é documento, não desconto automático. A decisão de pagar ou não é do DP: ou o colaborador pede inclusão de ponto e o dia deixa de gerar HE, ou o DP não paga anexando a negativa do líder — que o robô também registra no Quark como "não aprovado", com o nome de quem negou, as horas de então e o motivo.</li>
         <li><b>Cadastros:</b> ${B('Aprovar todos como indicado','ok')}, ${B('+ Convidar','p')}, ${B('Convites em lote')}, ${B('+ Pessoa fora do ponto')} e ${B('Editar')} (função, superior, setor, celular, matrícula, hora base, gerar convite, resetar PIN, bloquear).</li>
         <li><b>Cadastros, filtros:</b> além de buscar por nome e escolher o setor, filtre por <b>Superior</b> e por <b>Função</b>. Clique em Nome ou Setor no cabeçalho para ordenar.</li>
         <li><b>Avisos:</b> escolha o que entra (${T('Ponto incompleto','t-inc')}, Top em horas extras, ${T('HE sem autorização','t-no')}, ${T('Auditar Quark','t-aud')}) e o app monta uma mensagem para cada superior imediato com o bloco da equipe dele. Revise o texto e use ${B('Enviar no WhatsApp','p')} ou ${B('Copiar')}. Valores em R$ nunca entram na mensagem.</li>
@@ -1220,7 +1291,7 @@ function manualHTML(papel, rhFlag){
       <tr><td>Falta sem justificativa</td><td>Tinha jornada prevista, não houve nenhuma batida e não há observação nem abono.</td></tr>
       <tr><td>Sem entrada</td><td>Jornada prevista e nenhuma batida, mas existe alguma observação no Quark.</td></tr>
       <tr><td>Batida incompleta</td><td>Falta o par de alguma batida, ou há menos batidas do que a jornada pede.</td></tr>
-      <tr><td>HE não autorizada</td><td>O Quark apurou hora extra e não existe autorização registrada aqui.</td></tr></table>
+      <tr><td>HE não autorizada</td><td>O Quark apurou hora extra e ninguém decidiu nada aqui — nem autorizou, nem não autorizou.</td></tr></table>
     <div class="dica"><b>O que não gera pendência:</b> FOLGA, férias, afastamento, abono, feriado sem trabalho
       e dias de sobreaviso sem acionamento.</div>`, false, lider ? 'Líder / RH' : 'RH / Admin'));
 
@@ -1567,7 +1638,7 @@ async function vSobreaviso(){
       <div id="esc-up"></div></div>` : ''}
     <div class="card"><h2>Escala de sobreaviso</h2>
       <div class="expl">Marque as <b>noites</b> em que cada pessoa fica de sobreaviso. A noite de um dia vai das 17:30 até as 07:30 do dia seguinte
-        (ex.: marcar a segunda cobre de segunda 17:30 a terça 07:30). Fora do trabalho, essas horas valem 1/3 da hora base.
+        (ex.: marcar a segunda cobre de segunda 17:30 a terça 07:30). Fora do trabalho, essas horas valem 1/3 da hora base do sobreaviso (salário ÷ 220, sem periculosidade).
         Quando houver batida dentro da noite, o app sugere registrar o <b>acionamento</b> no detalhe da pessoa (aba Equipe).</div>
       <div class="sa-bar">
         <input class="in" id="sa-q" placeholder="Buscar nome" style="flex:1 1 180px">
@@ -1652,22 +1723,32 @@ function vRH(){
   const base = S.resumo.filter(r => r.normalizado > 0 || r.hn > 0 || r.noturna > 0 || r.sa_min > 0);
   const rows = filtrar(base);
   const calc = rows.map(r => {
-    const p = rubricas(r, S.ordem), hb = r.hora_base;
-    const not = (r.noturna + r.hn);
+    const p = rubricas(r, S.ordem), hb = r.hora_base, hbsa = r.hora_base_sa;
+    const not = (r.noturna + r.hn), notR = notRef(not);   /* notR: hora noturna reduzida, art. 73, §1 */
+    /* duas bases, como a folha: HE/noturno pela hora_base (com periculosidade),
+       sobreaviso pela hora_base_sa (salário/220, sem periculosidade — Súmula 132, II do TST).
+       O noturno incide sobre a REFERÊNCIA (52min30 = 1h), não sobre a hora do ponto. */
     const val = hb ? {
-      he50: p.he50/60*hb*fat50(), he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: not/60*hb*0.2,
-      sa: (r.sa_min||0)/60*hb/3
+      he50: p.he50/60*hb*fat50(), he75: p.he75/60*hb*1.75, he100: p.he100/60*hb*2.0, not: notR/60*hb*0.2,
+      sa: (r.sa_min||0)/60*(hbsa||0)/3
     } : null;
-    return {...r, p, not, val, total: val ? val.he50+val.he75+val.he100+val.not+val.sa : null};
+    /* _24: horas dos dias em que o líder NÃO autorizou a HE. Elas continuam
+       somadas acima de propósito — o painel espelha o ponto e a negativa é
+       documento, não desconto automático. Isto aqui é só o aviso para o DP
+       conferir contra a folha: valor bruto pelos fatores, sem abater compensação. */
+    const negMin = (r.neg_he50||0) + (r.neg_he75||0) + (r.neg_he100||0);
+    const negR = hb ? (r.neg_he50||0)/60*hb*fat50() + (r.neg_he75||0)/60*hb*1.75 + (r.neg_he100||0)/60*hb*2.0 : null;
+    return {...r, p, not, notR, val, negMin, negR, total: val ? val.he50+val.he75+val.he100+val.not+val.sa : null};
   });
   const sum = (f) => calc.reduce((s,c)=>s+(f(c)||0),0);
   const semHB = calc.filter(c => !c.hora_base).length;
+  const semSA = calc.filter(c => c.sa_min && c.hora_base && !c.hora_base_sa).length;
   const op = (k,t,d) => `<label class="opt ${S.ordem===k?'on':''}"><input type="radio" name="ord" value="${k}" ${S.ordem===k?'checked':''}><div><b>${t}</b><span>${d}</span></div></label>`;
   const linhaRH = c => `<tr class="click" data-r="${calc.indexOf(c)}">
           <td class="l">${esc(c.nome)}<div class="sub">${esc(c.cargo||c.empresa||'')}</div></td>
           <td data-l="HE ${pct50()}">${hm(c.he50)}</td><td data-l="HE 75%">${hm(c.he75)}</td><td data-l="HE 100%">${hm(c.he100)}</td><td data-l="Gerado">${hm(c.normalizado)}${c.acion_min?`<div class="sub">acion. ${hm(c.acion_min)}</div>`:''}</td><td data-l="Compensado" class="minus">${hm(c.compensado)}</td>
-          <td data-l="Pagar ${pct50()}"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}</td><td data-l="Sobreaviso">${c.sa_min?hm(c.sa_min):'—'}</td>
-          <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b><div class="sub">${c.hora_base?'hora '+brl(+c.hora_base):'<span class="tag t-wait">cadastrar hora base</span>'}</div></td></tr>`;
+          <td data-l="Pagar ${pct50()}"><b>${hm(c.p.he50)}</b></td><td data-l="Pagar 75%"><b>${hm(c.p.he75)}</b></td><td data-l="Pagar 100%"><b>${hm(c.p.he100)}</b></td><td data-l="Noturno">${hm(c.not)}${c.not?`<div class="sub">ref. ${hm(c.notR)}</div>`:''}</td><td data-l="Sobreaviso">${c.sa_min?hm(c.sa_min):'—'}</td>
+          <td data-l="Total"><b>${c.total!=null?brl(c.total):'—'}</b><div class="sub">${c.hora_base?'hora '+brl(+c.hora_base):'<span class="tag t-wait">cadastrar hora base</span>'}${c.sa_min&&c.hora_base?(c.hora_base_sa?'<br>sobreaviso '+brl(+c.hora_base_sa):'<br><span class="tag t-wait">hora base do sobreaviso</span>'):''}</div></td></tr>`;
   const corpoRH = usaFiltro()
     ? porSetor(calc).map(([k,cs]) => cabGrupo('rh:'+k, 12, k, `${cs.length} pessoas · saldo ${hm(cs.reduce((s,c)=>s+c.saldo,0))} · ${brl(cs.reduce((s,c)=>s+(c.total||0),0))}`) + cs.map(c => linhaDoGrupo('rh:'+k, linhaRH(c))).join('')).join('')
     : calc.map(linhaRH).join('');
@@ -1687,7 +1768,7 @@ function vRH(){
       <div class="st"><div class="l">Folga gerada (com fator)</div><div class="v">${hm(sum(c=>c.normalizado))}</div></div>
       <div class="st"><div class="l">Compensado</div><div class="v minus">${hm(sum(c=>c.compensado))}</div></div>
       <div class="st"><div class="l">Saldo a pagar (h normais)</div><div class="v plus">${hm(sum(c=>c.saldo))}</div></div>
-      <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':'HE + adicional noturno + sobreaviso'}</div></div>
+      <div class="st"><div class="l">Total a pagar</div><div class="v">${brl(sum(c=>c.total))}</div><div class="l">${semHB?semHB+' sem hora base cadastrada':semSA?semSA+' sem hora base do sobreaviso':'HE + adicional noturno + sobreaviso'}</div></div>
     </div>
     <div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
       <h2 style="margin:0">Fechamento de ${new Date(S.mes+'-15').toLocaleDateString('pt-BR',{month:'long',year:'numeric'})}${usaFiltro()&&S.f.g!=='TODOS'?' · '+S.f.g+(S.f.g==='I9 MATRIZ'&&S.f.eng?' · Engenharia':''):''}</h2>
@@ -1699,13 +1780,20 @@ function vRH(){
         <tbody>${corpoRH}</tbody>
         <tfoot><tr><td class="l">Total</td><td>${hm(sum(c=>c.he50))}</td><td>${hm(sum(c=>c.he75))}</td><td>${hm(sum(c=>c.he100))}</td>
           <td>${hm(sum(c=>c.normalizado))}</td><td>${hm(sum(c=>c.compensado))}</td>
-          <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}</td><td>${hm(sum(c=>c.sa_min||0))}</td>
+          <td>${hm(sum(c=>c.p.he50))}</td><td>${hm(sum(c=>c.p.he75))}</td><td>${hm(sum(c=>c.p.he100))}</td><td>${hm(sum(c=>c.not))}<div class="sub">ref. ${hm(sum(c=>c.notR))}</div></td><td>${hm(sum(c=>c.sa_min||0))}</td>
           <td>${brl(sum(c=>c.total))}</td></tr></tfoot>
       </table></div>
+      ${calc.some(c=>c.negMin)?`<div class="note" style="background:#FBE4E4;color:#8A1C1C;margin-top:10px">
+        <b>HE não autorizada pelo líder:</b> ${calc.filter(c=>c.negMin).length} pessoa${calc.filter(c=>c.negMin).length>1?'s':''},
+        ${hm(sum(c=>c.negMin))} em ${sum(c=>c.dias_negados)} dia${sum(c=>c.dias_negados)>1?'s':''}, equivalente a <b>${brl(sum(c=>c.negR))}</b> —
+        <b>já incluído nos totais acima</b>, porque o painel espelha o ponto e a negativa do líder é documento, não desconto automático.
+        A saída é uma das duas: o colaborador pede inclusão de ponto e o dia deixa de gerar HE, ou o DP não paga anexando a negativa
+        (o robô já registra o dia no Quark como "não aprovado", com o nome do líder, as horas de então e o motivo).
+        <div style="margin-top:6px">${calc.filter(c=>c.negMin).map(c=>`${esc(c.nome)} <b>${hm(c.negMin)}</b>`).join(' · ')}</div></div>`:''}
       <p class="sub" style="margin-top:8px">Clique em uma pessoa para ver os dias e imprimir o relatório individual.
         Para imprimir o de quem não aparece aqui, use a aba ${temRH(S.eu)?'Pessoas':'Equipe'}.</p>
-      <p class="sub" style="margin-top:4px">Sobreaviso = horas da noite de escala sem trabalho, pagas a 1/3 da hora base. As horas de acionamento já estão nas colunas de HE ("acion." mostra quanto da folga gerada veio delas; o CSV traz o detalhe por faixa).</p>
-      <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark), pagas a 20% da hora base. Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
+      <p class="sub" style="margin-top:4px">Sobreaviso = horas da noite de escala sem trabalho, pagas a <b>1/3 da hora base do sobreaviso</b>, que é <b>salário ÷ 220 sem o adicional de periculosidade</b> (Súmula 132, II do TST: nas horas de sobreaviso a pessoa não está em condição de risco). É base diferente da da HE, que leva periculosidade e insalubridade. As horas de acionamento já estão nas colunas de HE e são pagas pela base da HE ("acion." mostra quanto da folga gerada veio delas; o CSV traz o detalhe por faixa).</p>
+      <p class="sub" style="margin-top:4px">Noturno = horas noturnas da jornada + noturnas dentro da HE (coluna H.N. do Quark). A coluna mostra as horas do ponto e, embaixo, a <b>referência</b>: entre 22h e 5h cada <b>52min30</b> trabalhados contam como 1 hora (art. 73, §1 da CLT), então as horas reais são multiplicadas por 60 ÷ 52,5 (+14,29%) e o <b>adicional de 20% incide sobre essa referência</b> — é assim que a folha calcula (conferido ao minuto no espelho de out/2026: 1h03 → 1,12; 6h07 → 6,59). Atrasos além do saldo de HE são desconto comum de folha e não entram aqui.</p>
     </div>`;
   document.querySelectorAll('tr[data-r]').forEach(tr => tr.onclick = () => detalhe(calc[+tr.dataset.r]));
   ligarFiltro(vRH);
@@ -1716,13 +1804,15 @@ function vRH(){
   });
   $('b-csv').onclick = () => {
     const h = ['Nome','Empresa','Grupo','Setor','HE50 (h)','HE75 (h)','HE100 (h)','Gerado (h normais)','Compensado (h normais)',
-      'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Acionamento HE50 (h)','Acionamento HE75 (h)','Acionamento HE100 (h)','Acionamento noturno (h)',
-      'Sobreaviso (h)','Hora base','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Valor sobreaviso (1/3)','Total'];
+      'Pagar HE50 (h)','Pagar HE75 (h)','Pagar HE100 (h)','Noturno (h)','Noturno referência (h, 52min30)','Acionamento HE50 (h)','Acionamento HE75 (h)','Acionamento HE100 (h)','Acionamento noturno (h)',
+      'Sobreaviso (h)','Hora base','Hora base sobreaviso','Valor HE50','Valor HE75','Valor HE100','Adic. noturno','Valor sobreaviso (1/3)','Total',
+      'Dias com HE não autorizada','HE não autorizada (h)','HE não autorizada (R$)'];
     const n = v => (v/60).toFixed(2).replace('.',','), r2 = v => v==null?'':v.toFixed(2).replace('.',',');
     const L = calc.map(c => [c.nome, c.empresa||'', grupo(c.empresa), c.setor||'', n(c.he50), n(c.he75), n(c.he100), n(c.normalizado), n(c.compensado),
-      n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), n(c.acion_he50||0), n(c.acion_he75||0), n(c.acion_he100||0), n(c.acion_not||0),
-      n(c.sa_min||0), c.hora_base?r2(+c.hora_base):'',
-      r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.val?.sa), r2(c.total)]);
+      n(c.p.he50), n(c.p.he75), n(c.p.he100), n(c.not), n(c.notR), n(c.acion_he50||0), n(c.acion_he75||0), n(c.acion_he100||0), n(c.acion_not||0),
+      n(c.sa_min||0), c.hora_base?r2(+c.hora_base):'', c.hora_base_sa?r2(+c.hora_base_sa):'',
+      r2(c.val?.he50), r2(c.val?.he75), r2(c.val?.he100), r2(c.val?.not), r2(c.val?.sa), r2(c.total),
+      c.dias_negados||0, n(c.negMin||0), r2(c.negR)]);
     const csv = '﻿' + [h, ...L].map(l => l.map(x => `"${String(x).replace(/"/g,'""')}"`).join(';')).join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
@@ -1738,7 +1828,7 @@ const TIPO_PEND = {
   SEM_ENTRADA:             {rot:'Sem entrada',            ex:'Tem jornada prevista e nenhuma batida, mas há observação no Quark.'},
   BATIDA_INCOMPLETA:       {rot:'Batida incompleta',      ex:'Falta o par de alguma batida, ou há menos batidas do que a jornada pede.'},
   FALTA_SEM_JUSTIFICATIVA: {rot:'Falta sem justificativa', ex:'Jornada prevista, nenhuma batida e nenhuma observação ou abono.'},
-  HE_NAO_AUTORIZADA:       {rot:'HE não autorizada',      ex:'O Quark apurou hora extra e não existe autorização registrada aqui.'},
+  HE_NAO_AUTORIZADA:       {rot:'HE não autorizada',      ex:'O Quark apurou hora extra e ninguém decidiu nada aqui — nem autorizou, nem não autorizou.'},
 };
 const ST_PEND = {ABERTO:'em aberto', RESOLVIDO:'resolvida', EXPIRADO:'expirada'};
 
@@ -2504,7 +2594,7 @@ async function vCad(){
           <td class="l">${p.setor?esc(p.setor):'<span class="tag t-wait">classificar</span>'}</td>
           <td class="l w">${p.papel==='colaborador'&&p.status!=='ativo'?'—':`<span class="${p.status==='ativo'?'':'muted'}">${PAPEL[p.papel]||'—'}${p.acesso_rh?' <span class="tag t-sa">RH</span>':''}</span>`}</td><td class="l w">${esc(p.superior||'—')}</td>
           <td class="l"><span class="tag ${p.status==='ativo'?'t-ok':p.status==='bloqueado'?'t-no':p.convite_pendente?'t-wait':'t-gray'}">${p.status==='sem_acesso'?(p.convite_pendente?'convite enviado':'sem acesso'):p.status}</span></td>
-          <td>${p.hora_base?brl(+p.hora_base):'—'}</td>
+          <td>${p.hora_base?brl(+p.hora_base):'—'}<div class="sub">${p.hora_base_sa?'sobreaviso '+brl(+p.hora_base_sa):''}</div></td>
           <td><button class="btn s" data-ed="${p.id}">Editar</button></td></tr>`).join('')}</tbody></table></div>
     </div>`;
   document.querySelectorAll('.pend[data-p]').forEach(el => {
@@ -2681,6 +2771,8 @@ function editar(p, opSup, opPap, adm){
     ${adm?`<label>Celular (WhatsApp)</label><input class="in" id="e-tel" inputmode="tel" value="${esc(p.telefone||'')}" placeholder="(27) 99999-9999">`:''}
     <div class="row"><div><label>Matrícula</label><input class="in" id="e-mat" value="${esc(p.matricula||'')}"></div>
       <div><label>Hora base (R$)</label><input class="in" id="e-hb" inputmode="decimal" value="${p.hora_base??''}" placeholder="25,00"></div></div>
+    <div><label>Hora base do sobreaviso (R$)</label><input class="in" id="e-hbsa" inputmode="decimal" value="${p.hora_base_sa??''}" placeholder="18,00">
+      <div class="sub" style="margin:-6px 0 10px">Salário ÷ 220, <b>sem</b> o adicional de periculosidade (Súmula 132, II do TST). O painel aplica o 1/3 em cima disso. A hora base de cima, com periculosidade e insalubridade, continua valendo para hora extra, adicional noturno e acionamento.</div></div>
     <button class="btn p w" id="e-ok">Salvar</button>
     ${adm&&p.status==='sem_acesso'?'<button class="btn ok w" id="e-conv">Gerar convite para esta pessoa</button>':''}
     ${adm&&p.papel!=='admin'?`<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
@@ -2690,10 +2782,13 @@ function editar(p, opSup, opPap, adm){
   if ($('e-conv')) $('e-conv').onclick = () => convidar(p);
   $('e-ok').onclick = async () => {
     const hb = $('e-hb').value.trim().replace(',', '.');
+    const hbsa = $('e-hbsa').value.trim().replace(',', '.');
     try { await rpc('he_admin_editar', {p_token:S.token, p_pessoa:p.id,
         p_papel: adm && $('e-pap') && p.papel!=='admin' ? $('e-pap').value : null,
         p_superior: adm ? ($('e-sup').value || null) : p.superior_id,
         p_matricula: $('e-mat').value.trim() || null, p_hora_base: hb ? +hb : null,
+        /* 0 apaga; nulo mantém o que está lá (ver comentário na migração _23) */
+        p_hora_base_sa: hbsa ? +hbsa : (p.hora_base_sa != null ? 0 : null),
         ...(adm ? {p_setor: $('e-set').value || null, p_telefone: $('e-tel').value.trim()} : {})});
       if ($('e-rh') && $('e-rh').checked !== !!p.acesso_rh)
         await rpc('he_admin_acesso', {p_token:S.token, p_pessoa:p.id, p_acao:$('e-rh').checked?'rh_on':'rh_off'});
